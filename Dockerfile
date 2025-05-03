@@ -1,11 +1,7 @@
-FROM python:3.11-slim
+FROM fedora:latest
 
-RUN apt-get update && apt-get install -y git wget unzip && rm -rf /var/lib/apt/lists/*
-
-RUN wget https://github.com/opentofu/opentofu/releases/latest/download/tofu_Linux_x86_64.zip && \
-    unzip tofu_Linux_x86_64.zip -d /usr/local/bin && \
-    chmod +x /usr/local/bin/tofu && \
-    rm tofu_Linux_x86_64.zip
+RUN dnf install -y python3-pip python3-devel git opentofu && \
+    dnf clean all
 
 WORKDIR /app
 
