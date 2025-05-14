@@ -1,14 +1,13 @@
-FROM fedora:latest
-
-RUN dnf install -y python3-pip python3-devel git opentofu && \
-    dnf clean all
+FROM node:24
 
 WORKDIR /app
 
-COPY . .
+COPY package*.json ./
 
-RUN pip install --no-cache-dir -r requirements.txt
+RUN npm install
+
+COPY . .
 
 EXPOSE 8000
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["node", "index.js"]

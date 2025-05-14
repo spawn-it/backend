@@ -1,0 +1,27 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "Backend for SpawnIt application",
+  "homepage": "https://github.com/spawn-it/backend#readme",
+  "bugs": {
+    "url": "https://github.com/spawn-it/backend/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spawn-it/backend.git"
+  },
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "test"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.808.0",
+    "dotenv": "^16.5.0",
+    "express": "^5.1.0",
+    "uuid": "^11.1.0"
+  }
+}
