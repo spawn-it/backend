@@ -1,5 +1,5 @@
 const s3 = require('./s3');
-const tofuService = require('./TofuService');
+const tofuService = require('./opentofu');
 
 /**
  * OrchestratorService: combine S3 storage and Terraform operations without coupling them.

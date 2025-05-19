@@ -1,4 +1,4 @@
-const OpenTofuCommand = require('./OpenTofuCommand');
+const OpenTofuCommand = require('../utils/opentofu');
 const { v4: uuidv4 } = require('uuid');
 const { sendToClients } = require('../sse/clients');
 const path = require('path');
@@ -170,5 +170,5 @@ module.exports = {
   cancelJob,
   executeAction,
   executePlan,
-  getCommandInstance, // Exposé pour les tests
+  getCommandInstance,
 };
