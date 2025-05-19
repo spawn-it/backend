@@ -1,5 +1,5 @@
 const { spawn } = require('child_process');
-const TofuMutex = require('./TofuMutex');
+const TofuMutex = require('./tofumutex');
 
 /**
  * OpenTofuCommand class: wraps tofu CLI commands with context (clientId, serviceId, workingDir).
