@@ -1,5 +1,10 @@
+terraform {
+  backend "s3" {}
+}
+
+
 module "network_create" {
-  count = var.network.provider == "local" ? 1 : 0
+  count = var.instance.provider == "local" ? 1 : 0
   source = "./modules/providers/local"
-  network_name = var.network.network_name
+  network_name = var.instance.network_name
 }

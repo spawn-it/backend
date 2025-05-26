@@ -1,7 +1,9 @@
 const { spawn } = require('child_process');
 const path = require('path');
+const fs = require('fs');
 
-const TOFU_BIN = process.env.TOFU_BIN || '/usr/local/bin/tofu';
+
+const TOFU_BIN = process.env.TOFU_BIN || 'tofu';
 
 /**
  * OpenTofuCommand class: wraps tofu CLI commands with context (clientId, serviceId, codeDir, dataDir).
@@ -11,8 +13,8 @@ class OpenTofuCommand {
   /**
    * @param {string} clientId - unique identifier for the client
    * @param {string} serviceId - unique identifier for the service
-   * @param {string} codeDir - directory where OpenTofu code is located (/opentofu/)
-   * @param {string} dataDir - directory where client/service data is stored (/workdirs/client/service/)
+   * @param {string} codeDir - directory where OpenTofu code is located (./opentofu/)
+   * @param {string} dataDir - directory where client/service data is stored (./workdirs/client/service/)
    */
   constructor(clientId, serviceId, codeDir, dataDir) {
     this.clientId = clientId;
@@ -142,16 +144,14 @@ class OpenTofuCommand {
    * @returns {Promise<string>} output from the plan command
    */
   async runPlan() {
-    // S'assurer que tofu est initialisé avant de lancer un plan
     const initialized = await this.ensureInitialized();
     if (!initialized) {
       throw new Error(`Impossible d'initialiser OpenTofu pour ${this.key}`);
     }
-
+  
     console.log(`[TOFU] Exécution de 'tofu plan -no-color' pour ${this.key} (code: ${this.codeDir}, data: ${this.dataDir})`);
-
+  
     return new Promise((resolve, reject) => {
-      // Variables d'environnement avec répertoire de données séparé
       const env = {
         ...process.env,
         TF_DATA_DIR: path.join(this.dataDir, '.terraform'),
@@ -162,24 +162,70 @@ class OpenTofuCommand {
         TF_VAR_s3_access_key: process.env.S3_ACCESS_KEY,
         TF_VAR_s3_secret_key: process.env.S3_SECRET_KEY
       };
-
-      const proc = spawn(TOFU_BIN, ['plan', '-no-color'], {
-        cwd: this.codeDir,
-        env: env
-      });
+  
+      const tfvarsPath = path.join(this.dataDir, 'terraform.tfvars.json');
+      const args = ['plan', '-no-color'];
+  
+      if (fs.existsSync(tfvarsPath)) {
+        args.push(`-var-file=${tfvarsPath}`);
+        console.log(`[TOFU] Fichier de variables détecté: ${tfvarsPath}`);
+      }
+  
+      let proc;
       let output = '';
-
-      proc.stdout.on('data', (chunk) => output += chunk.toString());
-      proc.stderr.on('data', (chunk) => output += chunk.toString());
-      proc.on('error', (err) => reject(err));
+      let gotOutput = false;
+  
+      // watchdog après 5s sans sortie
+      const hangTimeout = setTimeout(() => {
+        if (!gotOutput) {
+          console.warn(`[TOFU WARNING] tofu plan semble bloqué pour ${this.key} (aucune sortie)`);
+          proc.stdin.write('\n');
+        }
+      }, 5000);
+  
+      // timeout total (failsafe)
+      const globalTimeout = setTimeout(() => {
+        console.error(`[TOFU] Timeout global: tofu plan bloqué pour ${this.key}`);
+        proc.kill('SIGTERM');
+        reject(new Error(`tofu plan timeout pour ${this.key}`));
+      }, 30000);
+  
+      proc = spawn(TOFU_BIN, args, {
+        cwd: this.codeDir,
+        env,
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+  
+      proc.stdout.on('data', (chunk) => {
+        gotOutput = true;
+        const data = chunk.toString();
+        console.log(`[TOFU OUT] ${data.trim()}`);
+        output += data;
+      });
+  
+      proc.stderr.on('data', (chunk) => {
+        gotOutput = true;
+        const data = chunk.toString();
+        console.error(`[TOFU ERR] ${data.trim()}`);
+        output += data;
+      });
+  
+      proc.on('error', (err) => {
+        clearTimeout(globalTimeout);
+        clearTimeout(hangTimeout);
+        reject(err);
+      });
+  
       proc.on('close', (code) => {
+        clearTimeout(globalTimeout);
+        clearTimeout(hangTimeout);
         if (code !== 0) {
-          return reject(new Error(`tofu plan exited with code ${code}`));
+          return reject(new Error(`tofu plan exited with code ${code}:\n${output}`));
         }
         resolve(output);
       });
     });
-  }
+  }  
 }
 
 module.exports = OpenTofuCommand;

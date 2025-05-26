@@ -46,6 +46,36 @@ async function createFile(bucket, key, content) {
   await s3Client.send(command);
 }
 
+async function getFile(bucket, key) {
+  try {
+    const command = new GetObjectCommand({
+      Bucket: bucket,
+      Key: key,
+    });
+  
+    const data = await s3Client.send(command);
+  
+    const streamToString = (stream) =>
+        new Promise((resolve, reject) => {
+          const chunks = [];
+          stream.on("data", (chunk) => chunks.push(chunk));
+          stream.on("error", reject);
+          stream.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")));
+        });
+  
+    return streamToString(data.Body);
+  } catch (err) {
+    // Si la clé n'existe pas, AWS SDK lance une erreur
+    if (err.name === 'NoSuchKey' || err.$metadata?.httpStatusCode === 404) {
+      const error = new Error(`Key ${key} does not exist in bucket ${bucket}`);
+      error.code = 'NoSuchKey';
+      throw error;
+    }
+    throw err;
+  }
+}
+
+
 async function listServices(bucket, clientId, basePrefix = 'clients/') {
   const prefix = `${basePrefix}${clientId}/`;
   const data = await s3Client.send(new ListObjectsV2Command({
@@ -84,6 +114,7 @@ module.exports = {
   listBuckets,
   listClients,
   listServices,
+  getFile,
   createFile,
   downloadFiles,
 };
