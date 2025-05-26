@@ -6,10 +6,6 @@ function getKey(clientId, serviceId) {
 
 function registerClient(clientId, serviceId, res) {
     const key = getKey(clientId, serviceId);
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-
     if (!sseClients.has(key)) sseClients.set(key, []);
     sseClients.get(key).push(res);
 }
@@ -28,7 +24,7 @@ function sendToClients(clientId, serviceId, message, event = 'message') {
     const key = getKey(clientId, serviceId);
     const list = sseClients.get(key) || [];
     for (const res of list) {
-        res.write(`event: ${event}\ndata: ${message}\n\n`);
+        res.write(`data: ${message}\n\n`);
     }
 }
 

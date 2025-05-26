@@ -7,10 +7,12 @@ const s3Service = require('./s3');
 
 const jobs = new Map();
 const planLoops = new Map();
-const instances = new Map(); // Pour garder une instance de OpenTofuCommand par client/service
+const instances = new Map();
 
-// Base working directory for all terraform configurations
-const BASE_WORKING_DIR = process.env.TOFU_WORKING_DIR || '/opentofu/';
+// Base working directory pour les données client/service
+const BASE_WORKING_DIR = process.env.TOFU_WORKING_DIR || '/workdirs/';
+// Répertoire où se trouve le code OpenTofu partagé
+const OPENTOFU_CODE_DIR = process.env.OPENTOFU_CODE_DIR || './opentofu/services';
 
 /**
  * Prepare working directory for a client/service by downloading files from S3
@@ -20,29 +22,31 @@ const BASE_WORKING_DIR = process.env.TOFU_WORKING_DIR || '/opentofu/';
  * @returns {Promise<string>} path to the working directory
  */
 async function prepareWorkingDirectory(clientId, serviceId, bucket) {
-  const workingDir = path.join(BASE_WORKING_DIR, clientId, serviceId);
+  // Créer le répertoire de données pour ce client/service
+  const dataDir = path.join(BASE_WORKING_DIR, clientId, serviceId);
   const s3Prefix = `clients/${clientId}/${serviceId}/`;
-  
+
   // Create directory if it doesn't exist
-  await fs.mkdir(workingDir, { recursive: true });
-  
-  // Download files from S3
-  await s3Service.downloadFiles(bucket, s3Prefix, workingDir);
-  
-  return workingDir;
+  await fs.mkdir(dataDir, { recursive: true });
+
+  // Download files from S3 dans le répertoire de données
+  await s3Service.downloadFiles(bucket, s3Prefix, dataDir);
+
+  return dataDir;
 }
 
 /**
  * Get or create a OpenTofuCommand instance for a client/service
  * @param {string} clientId
  * @param {string} serviceId
- * @param {string} workingDir
+ * @param {string} dataDir - répertoire contenant les données client/service
  * @returns {OpenTofuCommand}
  */
-function getCommandInstance(clientId, serviceId, workingDir) {
+function getCommandInstance(clientId, serviceId, dataDir) {
   const key = `${clientId}/${serviceId}`;
   if (!instances.has(key)) {
-    instances.set(key, new OpenTofuCommand(clientId, serviceId, workingDir));
+    // Le code OpenTofu est dans OPENTOFU_CODE_DIR, les données dans dataDir
+    instances.set(key, new OpenTofuCommand(clientId, serviceId, OPENTOFU_CODE_DIR, dataDir));
   }
   return instances.get(key);
 }
@@ -51,27 +55,34 @@ function getCommandInstance(clientId, serviceId, workingDir) {
  * Starts a continuous 'tofu plan' loop for a given client/service.
  * @param {string} clientId
  * @param {string} serviceId
- * @param {string} workingDir
+ * @param {string} dataDir - répertoire contenant les données client/service
  * @param {number} intervalMs
  */
-function startPlanLoop(clientId, serviceId, workingDir, intervalMs = 10000) {
+function startPlanLoop(clientId, serviceId, dataDir, intervalMs = 10000) {
   const key = `${clientId}/${serviceId}`;
   if (planLoops.has(key)) {
-    stopPlanLoop(clientId, serviceId); // Stop existing loop before starting a new one
+    stopPlanLoop(clientId, serviceId);
   }
-  
-  const runner = getCommandInstance(clientId, serviceId, workingDir);
-  
+
+  const runner = getCommandInstance(clientId, serviceId, dataDir);
+
   planLoops.set(key, setInterval(async () => {
+    console.log(`[TOFU] Boucle plan tick pour ${key}`);
     try {
       const output = await runner.runPlan();
+      console.log(`[DEBUG] runPlan output length: ${output.length}`);
+      console.log(`[TOFU PLAN] ${clientId}/${serviceId}:\n${output}`);
+
+      console.log(`[TOFU PLAN] ${clientId}/${serviceId}:\n${output}`);
       sendToClients(clientId, serviceId, output);
     } catch (err) {
+      console.error(`[TOFU] Erreur dans la boucle plan pour ${key}:`, err.message);
       sendToClients(clientId, serviceId, `Error during plan: ${err.message}`);
     }
   }, intervalMs));
-  
-  console.log(`[TOFU] plan loop started for ${key}`);
+
+
+  console.log(`[TOFU] plan loop started for ${key} (code: ${OPENTOFU_CODE_DIR}, data: ${dataDir})`);
 }
 
 /**
@@ -107,9 +118,9 @@ function cancelJob(jobId) {
  * @param {string} bucket
  */
 async function executePlan(clientId, serviceId, bucket) {
-  const workingDir = await prepareWorkingDirectory(clientId, serviceId, bucket);
-  startPlanLoop(clientId, serviceId, workingDir);
-  return { status: 'started', workingDir };
+  const dataDir = await prepareWorkingDirectory(clientId, serviceId, bucket);
+  startPlanLoop(clientId, serviceId, dataDir);
+  return { status: 'started', codeDir: OPENTOFU_CODE_DIR, dataDir };
 }
 
 /**
@@ -121,39 +132,39 @@ async function executePlan(clientId, serviceId, bucket) {
  * @param {object} res - Express response object to return jobId
  */
 async function executeAction(action, clientId, serviceId, bucket, res) {
-  const workingDir = await prepareWorkingDirectory(clientId, serviceId, bucket);
-  
+  const dataDir = await prepareWorkingDirectory(clientId, serviceId, bucket);
+
   // Always stop any existing plan loop before running an action
   stopPlanLoop(clientId, serviceId);
-  
-  const runner = getCommandInstance(clientId, serviceId, workingDir);
+
+  const runner = getCommandInstance(clientId, serviceId, dataDir);
   try {
     const jobId = uuidv4();
-    // Utilise spawnCommand qui gère maintenant l'initialisation avec mutex
+    // Spawn command - le code est dans OPENTOFU_CODE_DIR, les données dans dataDir
     const proc = await runner.spawnCommand(action);
     jobs.set(jobId, proc);
     res.json({ jobId });
-    
+
     let output = '';
     proc.stdout.on('data', (chunk) => {
       const data = chunk.toString();
       output += data;
       sendToClients(clientId, serviceId, data, 'data');
     });
-    
+
     proc.stderr.on('data', (chunk) => {
       const data = chunk.toString();
       output += data;
       sendToClients(clientId, serviceId, data, 'error');
     });
-    
+
     proc.on('close', (code) => {
       jobs.delete(jobId);
       sendToClients(clientId, serviceId, `${action} completed with code ${code}`, 'end');
-      
+
       if (action === 'apply') {
         // restart plan loop after apply
-        startPlanLoop(clientId, serviceId, workingDir);
+        startPlanLoop(clientId, serviceId, dataDir);
       }
     });
   } catch (err) {

@@ -41,7 +41,7 @@ router.get('/:clientId/:serviceId/plan/stream', (req, res) => {
   
   // Set up SSE headers
   res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
+    'Content-Type': 'text/event-stream; charset=utf-8',
     'Cache-Control': 'no-cache',
     'Connection': 'keep-alive'
   });
@@ -104,5 +104,19 @@ router.delete('/jobs/:jobId', async (req, res) => {
     res.status(500).json({ error: 'Impossible d\'annuler le job' });
   }
 });
+
+router.post('/clients/:clientId/:serviceId/config', async (req, res) => {
+  const { clientId, serviceId } = req.params;
+  const config = req.body;
+  try {
+    const key = `clients/${clientId}/${serviceId}/terraform.tfvars.json`;
+    await deployment.createFile(bucketName, key, JSON.stringify(config, null, 2));
+    res.json({ status: 'uploaded', key });
+  } catch (err) {
+    console.error('Erreur upload config :', err);
+    res.status(500).json({ error: 'Échec de l\'upload de la configuration' });
+  }
+});
+
 
 module.exports = router;

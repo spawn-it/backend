@@ -28,7 +28,13 @@ module.exports = {
   listServices: async (bucket, clientId) => {
     return s3.listServices(bucket, clientId);
   },
-  
+
+  /**
+   *
+   */
+  createFile: async (bucket, key, content) => {
+    return s3.createFile(bucket, key, content);
+  },
   /**
    * Prepare working directory and start a continuous Terraform plan loop.
    * @param {string} clientId

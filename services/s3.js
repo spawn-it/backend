@@ -1,4 +1,4 @@
-const { S3Client, ListBucketsCommand, ListObjectsV2Command, GetObjectCommand } = require('@aws-sdk/client-s3');
+const { S3Client, ListBucketsCommand, ListObjectsV2Command, GetObjectCommand, PutObjectCommand } = require('@aws-sdk/client-s3');
 const { pipeline } = require('stream');
 const { promisify } = require('util');
 const fs = require('fs');
@@ -8,7 +8,7 @@ const streamPipeline = promisify(pipeline);
 const s3Client = new S3Client({
   region: process.env.S3_REGION || "eu-central-1",
   forcePathStyle: true,
-  endpoint: process.env.S3_ENDPOINT,
+  endpoint: process.env.S3_URL,
   credentials: {
     accessKeyId: process.env.S3_ACCESS_KEY,
     secretAccessKey: process.env.S3_SECRET_KEY,
@@ -27,6 +27,23 @@ async function listClients(bucket, basePrefix = 'clients/') {
     Delimiter: '/',
   }));
   return (data.CommonPrefixes || []).map(cp => cp.Prefix.replace(basePrefix, '').replace(/\/$/, ''));
+}
+
+/**
+ * Upload a file (stringified JSON or text) to S3 at the given key.
+ * @param {string} bucket - Name of the S3 bucket
+ * @param {string} key - Full S3 path (e.g. "clients/foo/service/instance.json")
+ * @param {string|Buffer} content - Content to upload (usually JSON.stringify(...))
+ */
+async function createFile(bucket, key, content) {
+  const command = new PutObjectCommand({
+    Bucket: bucket,
+    Key: key,
+    Body: content,
+    ContentType: "application/json"
+  });
+
+  await s3Client.send(command);
 }
 
 async function listServices(bucket, clientId, basePrefix = 'clients/') {
@@ -67,5 +84,6 @@ module.exports = {
   listBuckets,
   listClients,
   listServices,
+  createFile,
   downloadFiles,
 };
