@@ -74,6 +74,26 @@ router.delete('/:clientId/:serviceId/plan', async (req, res) => {
   }
 });
 
+
+// Execute pre-defined actions to create or destroy network for a client
+router.post('/:clientId/network/:action', async (req, res) => {
+  const { clientId, serviceId, action } = req.params;
+  const validActions = ['apply', 'destroy'];
+
+  if (!validActions.includes(action)) {
+    return res.status(400).json({ error: 'Action invalide' });
+  }
+
+  try {
+    await deployment.executeAction(action, clientId, "network", bucketName, res, './opentofu/network');
+  } catch (err) {
+    console.error(`Erreur exécution ${action} pour ${clientId}/"network" :`, err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: `Erreur lors de l'exécution de l'action ${action}` });
+    }
+  }
+});
+
 // Execute an action (apply or destroy)
 router.post('/:clientId/:serviceId/:action', async (req, res) => {
   const { clientId, serviceId, action } = req.params;

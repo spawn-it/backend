@@ -52,9 +52,10 @@ module.exports = {
    * @param {string} serviceId
    * @param {string} bucket
    * @param {object} res - Express response object to stream jobId
+   * @param {string} [opentofuCodeDir=tofuService.OPENTOFU_CODE_DIR] - Directory containing OpenTofu code
    */
-  executeAction: async (action, clientId, serviceId, bucket, res) => {
-    return tofuService.executeAction(action, clientId, serviceId, bucket, res);
+  executeAction: async (action, clientId, serviceId, bucket, res, opentofuCodeDir = tofuService.OPENTOFU_CODE_DIR) => {
+    return tofuService.executeAction(action, clientId, serviceId, bucket, res, opentofuCodeDir);
   },
   
   /**

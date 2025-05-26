@@ -40,13 +40,13 @@ async function prepareWorkingDirectory(clientId, serviceId, bucket) {
  * @param {string} clientId
  * @param {string} serviceId
  * @param {string} dataDir - répertoire contenant les données client/service
+ * @param {string} [codeDir=OPENTOFU_CODE_DIR] - répertoire contenant le code OpenTofu
  * @returns {OpenTofuCommand}
  */
-function getCommandInstance(clientId, serviceId, dataDir) {
+function getCommandInstance(clientId, serviceId, dataDir, codeDir = OPENTOFU_CODE_DIR) {
   const key = `${clientId}/${serviceId}`;
   if (!instances.has(key)) {
-    // Le code OpenTofu est dans OPENTOFU_CODE_DIR, les données dans dataDir
-    instances.set(key, new OpenTofuCommand(clientId, serviceId, OPENTOFU_CODE_DIR, dataDir));
+    instances.set(key, new OpenTofuCommand(clientId, serviceId, codeDir, dataDir));
   }
   return instances.get(key);
 }
@@ -130,14 +130,15 @@ async function executePlan(clientId, serviceId, bucket) {
  * @param {string} serviceId
  * @param {string} bucket
  * @param {object} res - Express response object to return jobId
+ * @param {string} [codeDir=OPENTOFU_CODE_DIR] - Directory containing OpenTofu code
  */
-async function executeAction(action, clientId, serviceId, bucket, res) {
+async function executeAction(action, clientId, serviceId, bucket, res, codeDir = OPENTOFU_CODE_DIR) {
   const dataDir = await prepareWorkingDirectory(clientId, serviceId, bucket);
 
   // Always stop any existing plan loop before running an action
   stopPlanLoop(clientId, serviceId);
 
-  const runner = getCommandInstance(clientId, serviceId, dataDir);
+  const runner = getCommandInstance(clientId, serviceId, dataDir, codeDir);
   try {
     const jobId = uuidv4();
     // Spawn command - le code est dans OPENTOFU_CODE_DIR, les données dans dataDir
@@ -176,10 +177,10 @@ async function executeAction(action, clientId, serviceId, bucket, res) {
 }
 
 module.exports = {
+  OPENTOFU_CODE_DIR,
   startPlanLoop,
   stopPlanLoop,
   cancelJob,
   executeAction,
   executePlan,
-  getCommandInstance,
 };
