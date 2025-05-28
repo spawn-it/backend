@@ -1,107 +1,138 @@
 [
   {
-    "name": "minecraft",
-    "label": "Minecraft",
-    "description": "Official Minecraft server",
-    "image_path": "/assets/icons/minecraft.png",
-    "template_file": "minecraft.template.tfvars.json"
+    "id": "games",
+    "name": "Game Servers",
+    "items": [
+      {
+        "name": "minecraft",
+        "label": "Minecraft",
+        "description": "Official Minecraft server",
+        "image_path": "minecraft.png",
+        "template_file": "minecraft.template.tfvars.json"
+      },
+      {
+        "name": "quakejs",
+        "label": "QuakeJS",
+        "description": "Browser-based Quake III Arena",
+        "image_path": "quakejs.png",
+        "template_file": "quakejs.template.tfvars.json"
+      },
+      {
+        "name": "rust",
+        "label": "Rust Server",
+        "description": "Multiplayer Rust survival game server",
+        "image_path": "rust.png",
+        "template_file": "rust.template.tfvars.json"
+      },
+      {
+        "name": "csgo",
+        "label": "CS:GO Server",
+        "description": "Counter-Strike: Global Offensive dedicated server",
+        "image_path": "csgo.png",
+        "template_file": "csgo.template.tfvars.json"
+      }
+    ]
   },
   {
-    "name": "quakejs",
-    "label": "QuakeJS",
-    "description": "Browser-based Quake III Arena",
-    "image_path": "/assets/icons/quakejs.png",
-    "template_file": "quakejs.template.tfvars.json"
+    "id": "servers",
+    "name": "Server Types",
+    "items": [
+      {
+        "name": "minio",
+        "label": "MinIO",
+        "description": "S3-compatible object storage server",
+        "image_path": "minio.png",
+        "template_file": "minio.template.tfvars.json"
+      },
+      {
+        "name": "nginx",
+        "label": "NGINX Proxy Manage",
+        "description": "NGINX-based reverse proxy and load balancer",
+        "image_path": "nginx.png",
+        "template_file": "nginx.template.tfvars.json"
+      },
+      {
+        "name": "kubernetes-node",
+        "label": "Kubernetes Node",
+        "description": "Kind-based local Kubernetes node",
+        "image_path": "kubernetes-node.png",
+        "template_file": "kubernetes-node.template.tfvars.json"
+      },
+      {
+        "name": "postgresql",
+        "label": "PostgreSQL",
+        "description": "PostgreSQL 16 database server",
+        "image_path": "postgresql.png",
+        "template_file": "postgresql.template.tfvars.json"
+      }
+    ]
   },
   {
-    "name": "rust",
-    "label": "Rust Server",
-    "description": "Multiplayer Rust survival game server",
-    "image_path": "/assets/icons/rust.png",
-    "template_file": "rust.template.tfvars.json"
+    "id": "apps",
+    "name": "Applications",
+    "items": [
+      {
+        "name": "wordpress",
+        "label": "WordPress",
+        "description": "Popular PHP CMS for websites and blogs",
+        "image_path": "wordpress.png",
+        "template_file": "wordpress.template.tfvars.json"
+      },
+      {
+        "name": "ghost",
+        "label": "Ghost",
+        "description": "Minimalist blogging platform",
+        "image_path": "ghost.png",
+        "template_file": "ghost.template.tfvars.json"
+      },
+      {
+        "name": "keycloak",
+        "label": "Keycloak",
+        "description": "Identity and access management server",
+        "image_path": "keycloak.png",
+        "template_file": "keycloak.template.tfvars.json"
+      },
+      {
+        "name": "drupal",
+        "label": "Drupal",
+        "description": "Open-source CMS platform",
+        "image_path": "drupal.png",
+        "template_file": "drupal.template.tfvars.json"
+      }
+    ]
   },
   {
-    "name": "csgo",
-    "label": "CS:GO Server",
-    "description": "Counter-Strike: Global Offensive dedicated server",
-    "image_path": "/assets/icons/csgo.png",
-    "template_file": "csgo.template.tfvars.json"
-  },
-  {
-    "name": "kubernetes-node",
-    "label": "Kubernetes Node",
-    "description": "Kind-based local Kubernetes node",
-    "image_path": "/assets/icons/k8s.png",
-    "template_file": "kubernetes-node.template.tfvars.json"
-  },
-  {
-    "name": "postgresql",
-    "label": "PostgreSQL",
-    "description": "PostgreSQL 16 database server",
-    "image_path": "/assets/icons/postgres.png",
-    "template_file": "postgresql.template.tfvars.json"
-  },
-  {
-    "name": "minio",
-    "label": "MinIO",
-    "description": "S3-compatible object storage server",
-    "image_path": "/assets/icons/minio.png",
-    "template_file": "minio.template.tfvars.json"
-  },
-  {
-    "name": "wordpress",
-    "label": "WordPress",
-    "description": "Popular PHP CMS for websites and blogs",
-    "image_path": "/assets/icons/wordpress.png",
-    "template_file": "wordpress.template.tfvars.json"
-  },
-  {
-    "name": "ghost",
-    "label": "Ghost",
-    "description": "Minimalist blogging platform",
-    "image_path": "/assets/icons/ghost.png",
-    "template_file": "ghost.template.tfvars.json"
-  },
-  {
-    "name": "keycloak",
-    "label": "Keycloak",
-    "description": "Identity and access management server",
-    "image_path": "/assets/icons/keycloak.png",
-    "template_file": "keycloak.template.tfvars.json"
-  },
-  {
-    "name": "drupal",
-    "label": "Drupal",
-    "description": "Open-source CMS platform",
-    "image_path": "/assets/icons/drupal.png",
-    "template_file": "drupal.template.tfvars.json"
-  },
-  {
-    "name": "gitlab",
-    "label": "GitLab",
-    "description": "DevOps platform for Git repositories",
-    "image_path": "/assets/icons/gitlab.png",
-    "template_file": "gitlab.template.tfvars.json"
-  },
-  {
-    "name": "jenkins",
-    "label": "Jenkins",
-    "description": "Automation server for CI/CD pipelines",
-    "image_path": "/assets/icons/jenkins.png",
-    "template_file": "jenkins.template.tfvars.json"
-  },
-  {
-    "name": "sonarqube",
-    "label": "SonarQube",
-    "description": "Code quality and security analyzer",
-    "image_path": "/assets/icons/sonarqube.png",
-    "template_file": "sonarqube.template.tfvars.json"
-  },
-  {
-    "name": "artifactory",
-    "label": "JFrog Artifactory",
-    "description": "Universal binary repository manager",
-    "image_path": "/assets/icons/artifactory.png",
-    "template_file": "artifactory.template.tfvars.json"
+    "id": "devtools",
+    "name": "Dev Tools",
+    "items": [
+      {
+        "name": "gitlab",
+        "label": "GitLab",
+        "description": "DevOps platform for Git repositories",
+        "image_path": "gitlab.png",
+        "template_file": "gitlab.template.tfvars.json"
+      },
+      {
+        "name": "jenkins",
+        "label": "Jenkins",
+        "description": "Automation server for CI/CD pipelines",
+        "image_path": "jenkins.png",
+        "template_file": "jenkins.template.tfvars.json"
+      },
+      {
+        "name": "sonarqube",
+        "label": "SonarQube",
+        "description": "Code quality and security analyzer",
+        "image_path": "sonarqube.png",
+        "template_file": "sonarqube.template.tfvars.json"
+      },
+      {
+        "name": "artifactory",
+        "label": "JFrog Artifactory",
+        "description": "Universal binary repository manager",
+        "image_path": "artifactory.png",
+        "template_file": "artifactory.template.tfvars.json"
+      }
+    ]
   }
 ]
