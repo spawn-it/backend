@@ -1,4 +1,5 @@
 const OpenTofuCommand = require('../utils/opentofu');
+const OpenTofuStatus = require('../utils/OpenTofuStatus');
 const { v4: uuidv4 } = require('uuid');
 const { sendToClients } = require('../sse/clients');
 const path = require('path');
@@ -72,16 +73,12 @@ async function checkNetworkIsReady(clientId, instanceConfig, bucket) {
   // Initialiser (si besoin)
   await networkRunner.ensureInitialized();
 
-  // Lancer plan sans couleur
-  const planOutput = await networkRunner.runPlan();
-
-  // Vérifier qu’il n’y a pas de changements planifiés
-  const cleanPlanRegex = /Plan:\s+0 to add,\s+0 to change,\s+0 to destroy/;
-  if (!cleanPlanRegex.test(planOutput)) {
-    throw new Error(`Network for client ${clientId} provider ${provider} is not ready: pending changes detected.`);
+  const status = await networkRunner.runPlan();
+  if (!status.isCompliant()) {
+    throw new Error(`Network for client ${clientId} provider ${provider} is not ready: ${status.state}`);
   }
 
-  console.log(`[TOFU] Network for client ${clientId} provider ${provider} is ready (no pending changes).`);
+  console.log(`[TOFU] Network for client ${clientId} provider ${provider} is ready.`);
 }
 
 /**
@@ -98,25 +95,21 @@ async function startPlanLoop(clientId, serviceId, dataDir, intervalMs = 10000) {
 
     try {
       if (serviceId !== 'network') {
-        // Charger config instance pour récupérer provider et network_name
         const instanceRaw = await s3Service.getFile(process.env.S3_BUCKET, `clients/${clientId}/${serviceId}/terraform.tfvars.json`);
         const instanceJson = JSON.parse(instanceRaw);
         const instanceConfig = new InstanceConfig(instanceJson.instance || instanceJson);
-
         await checkNetworkIsReady(clientId, instanceConfig, process.env.S3_BUCKET);
       }
 
-      const output = await runner.runPlan();
-      console.log(`[TOFU PLAN] ${clientId}/${serviceId}:\n${output}`);
-      sendToClients(clientId, serviceId, output);
-
+      const status = await runner.runPlan();
+      sendToClients(clientId, serviceId, JSON.stringify(status.toJSON()));
     } catch (err) {
-      console.error(`[TOFU] Erreur dans la boucle plan pour ${key}:`, err.message);
-      sendToClients(clientId, serviceId, `Error during plan: ${err.message}`);
+      const errorStatus = OpenTofuStatus.fromError(key, '', err);
+      sendToClients(clientId, serviceId, JSON.stringify(errorStatus.toJSON()));
     }
   }, intervalMs));
 
-  console.log(`[TOFU] plan loop started for ${key} (code: ${OPENTOFU_CODE_DIR}, data: ${dataDir})`);
+  console.log(`[TOFU] plan loop started for ${key}`);
 }
 
 /**
@@ -148,9 +141,26 @@ function cancelJob(jobId) {
  */
 async function executeAction(action, clientId, serviceId, bucket, res, codeDir = OPENTOFU_CODE_DIR) {
   const dataDir = await prepareWorkingDirectory(clientId, serviceId, bucket);
-  const instanceRaw = await s3Service.getFile(bucket, `clients/${clientId}/${serviceId}/terraform.tfvars.json`);
-  const instanceJson = JSON.parse(instanceRaw);
-  const instanceConfig = new InstanceConfig(instanceJson.instance || instanceJson);
+  
+  // Déterminer si c'est une action réseau
+  const isNetworkAction = serviceId.startsWith('network/');
+  
+  let instanceConfig = null;
+  
+  // Seulement lire la config d'instance si ce n'est pas une action réseau
+  if (!isNetworkAction) {
+    try {
+      const instanceRaw = await s3Service.getFile(bucket, `clients/${clientId}/${serviceId}/terraform.tfvars.json`);
+      const instanceJson = JSON.parse(instanceRaw);
+      instanceConfig = new InstanceConfig(instanceJson.instance || instanceJson);
+    } catch (err) {
+      console.error(`[TOFU] Error reading instance config for ${clientId}/${serviceId}:`, err);
+      if (!res.headersSent) {
+        return res.status(500).json({ error: `Configuration manquante pour ${serviceId}` });
+      }
+      return;
+    }
+  }
 
   stopPlanLoop(clientId, serviceId);
   const runner = getCommandInstance(clientId, serviceId, dataDir, codeDir);
@@ -158,7 +168,8 @@ async function executeAction(action, clientId, serviceId, bucket, res, codeDir =
   try {
     const jobId = uuidv4();
 
-    if (serviceId !== 'network') {
+    // Vérifier que le réseau est prêt seulement pour les services (pas pour les actions réseau)
+    if (!isNetworkAction && instanceConfig) {
       await checkNetworkIsReady(clientId, instanceConfig, bucket);
     }
 
@@ -167,17 +178,36 @@ async function executeAction(action, clientId, serviceId, bucket, res, codeDir =
     const proc = await runner.spawnCommand(action);
     jobs.set(jobId, proc);
 
-    proc.stdout.on('data', chunk => sendToClients(clientId, serviceId, chunk.toString(), 'data'));
-    proc.stderr.on('data', chunk => sendToClients(clientId, serviceId, chunk.toString(), 'error'));
+    let output = '';
+
+    proc.stdout.on('data', chunk => {
+      const text = chunk.toString();
+      output += text;
+      sendToClients(clientId, serviceId, text, 'data');
+    });
+
+    proc.stderr.on('data', chunk => {
+      const text = chunk.toString();
+      output += text;
+      sendToClients(clientId, serviceId, text, 'error');
+    });
 
     proc.on('close', code => {
       jobs.delete(jobId);
-      sendToClients(clientId, serviceId, `${action} completed with code ${code}`, 'end');
+      const status = code === 0
+        ? new OpenTofuStatus(`${clientId}/${serviceId}`, 'success', output)
+        : OpenTofuStatus.fromError(`${clientId}/${serviceId}`, output, new Error(`${action} exited with code ${code}`));
+
+      sendToClients(clientId, serviceId, JSON.stringify(status.toJSON()), 'end');
+
       if (action === 'apply') startPlanLoop(clientId, serviceId, dataDir);
     });
 
     proc.on('error', err => {
       jobs.delete(jobId);
+      const status = OpenTofuStatus.fromError(`${clientId}/${serviceId}`, output, err);
+      sendToClients(clientId, serviceId, JSON.stringify(status.toJSON()), 'error');
+
       if (!res.headersSent) res.status(500).json({ error: err.message });
     });
 
@@ -196,6 +226,43 @@ async function executePlan(clientId, serviceId, bucket) {
   return { status: 'started', codeDir: OPENTOFU_CODE_DIR, dataDir };
 }
 
+/**
+ * Vérifie le statut du réseau avec gestion d'erreur améliorée
+ */
+async function checkNetworkStatus(clientId, bucket, key) {
+  try {
+    // Vérifier que le fichier existe d'abord
+    await s3Service.getFile(bucket, key);
+  } catch (err) {
+    if (err.code === 'NoSuchKey') {
+      // Retourner un statut "non compliant" au lieu de lever une erreur
+      return {
+        isCompliant: () => false,
+        toJSON: () => ({ compliant: false, state: 'missing_config', message: 'Configuration réseau manquante' })
+      };
+    }
+    throw err;
+  }
+
+  // Extraire le provider du chemin
+  const pathParts = key.split('/');
+  const provider = pathParts[pathParts.length - 2]; // network/[provider]/terraform.tfvars.json
+  
+  const dataDir = await prepareWorkingDirectory(clientId, `network/${provider}`, bucket);
+  const runner = getCommandInstance(clientId, `network/${provider}`, dataDir, NETWORK_CODE_DIR);
+  
+  try {
+    await runner.ensureInitialized();
+    return await runner.runPlan();
+  } catch (err) {
+    console.error(`[TOFU] Error running plan for network ${clientId}/${provider}:`, err);
+    return {
+      isCompliant: () => false,
+      toJSON: () => ({ compliant: false, state: 'error', message: err.message })
+    };
+  }
+}
+
 module.exports = {
   OPENTOFU_CODE_DIR,
   NETWORK_CODE_DIR,
@@ -204,4 +271,5 @@ module.exports = {
   cancelJob,
   executeAction,
   executePlan,
+  checkNetworkStatus
 };

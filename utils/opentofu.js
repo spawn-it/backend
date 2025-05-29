@@ -1,7 +1,7 @@
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
-
+const OpenTofuStatus = require('./OpenTofuStatus');
 
 const TOFU_BIN = process.env.TOFU_BIN || 'tofu';
 
@@ -30,9 +30,7 @@ class OpenTofuCommand {
    * @returns {Promise<boolean>} - true si l'initialisation a réussi
    */
   async ensureInitialized() {
-    if (this.initialized) {
-      return true;
-    }
+    if (this.initialized) return true;
 
     try {
       console.log(`[TOFU] Initialisation pour ${this.key} (code: ${this.codeDir}, data: ${this.dataDir})`);
@@ -62,10 +60,7 @@ class OpenTofuCommand {
       ];
 
       await new Promise((resolve, reject) => {
-        const proc = spawn(TOFU_BIN, args, {
-          cwd: this.codeDir,
-          env: env
-        });
+        const proc = spawn(TOFU_BIN, args, { cwd: this.codeDir, env });
 
         let output = '';
         proc.stdout.on('data', (chunk) => {
@@ -80,9 +75,7 @@ class OpenTofuCommand {
           console.error(`[TOFU INIT] ${this.key}: ${data.trim()}`);
         });
 
-        proc.on('error', (err) => {
-          reject(new Error(`Erreur lors de l'initialisation: ${err.message}`));
-        });
+        proc.on('error', (err) => reject(new Error(`Erreur lors de l'initialisation: ${err.message}`)));
 
         proc.on('close', (code) => {
           if (code !== 0) {
@@ -96,7 +89,6 @@ class OpenTofuCommand {
       });
 
       return true;
-
     } catch (err) {
       console.error(`[TOFU] Erreur lors de l'initialisation pour ${this.key}: ${err.message}`);
       return false;
@@ -109,18 +101,25 @@ class OpenTofuCommand {
    * @returns {Promise<ChildProcess>}
    */
   async spawnCommand(action) {
-    // S'assurer que tofu est initialisé avant de lancer une commande
     const initialized = await this.ensureInitialized();
     if (!initialized) {
       throw new Error(`Impossible d'initialiser OpenTofu pour ${this.key}`);
     }
 
     const args = [action];
+    
+    // CORRECTION: Ajouter le fichier de variables pour toutes les actions
+    const tfvarsPath = path.join(this.dataDir, 'terraform.tfvars.json');
+    if (fs.existsSync(tfvarsPath)) {
+      args.push(`-var-file=${tfvarsPath}`);
+      console.log(`[TOFU] Utilisation du fichier de variables: ${tfvarsPath}`);
+    }
+    
+    // Ajouter -auto-approve pour apply et destroy
     if (['apply', 'destroy'].includes(action)) {
       args.push('-auto-approve');
     }
 
-    // Variables d'environnement avec répertoire de données séparé
     const env = {
       ...process.env,
       TF_DATA_DIR: path.join(this.dataDir, '.terraform'),
@@ -132,26 +131,19 @@ class OpenTofuCommand {
       TF_VAR_s3_secret_key: process.env.S3_SECRET_KEY
     };
 
-    console.log(`[TOFU] Exécution de 'tofu ${args.join(' ')}' pour ${this.key} (code: ${this.codeDir}, data: ${this.dataDir})`);
-    return spawn(TOFU_BIN, args, {
-      cwd: this.codeDir,
-      env: env
-    });
+    console.log(`[TOFU] Exécution de 'tofu ${args.join(' ')}' pour ${this.key}`);
+    return spawn(TOFU_BIN, args, { cwd: this.codeDir, env });
   }
 
-  /**
-   * Executes 'tofu plan -no-color' and returns the accumulated output.
-   * @returns {Promise<string>} output from the plan command
-   */
   async runPlan() {
     const initialized = await this.ensureInitialized();
     if (!initialized) {
-      throw new Error(`Impossible d'initialiser OpenTofu pour ${this.key}`);
+      return OpenTofuStatus.fromError(this.key, '', new Error('initialisation échouée'));
     }
-  
-    console.log(`[TOFU] Exécution de 'tofu plan -no-color' pour ${this.key} (code: ${this.codeDir}, data: ${this.dataDir})`);
-  
-    return new Promise((resolve, reject) => {
+
+    console.log(`[TOFU] Exécution de 'tofu plan -no-color' pour ${this.key}`);
+
+    return new Promise((resolve) => {
       const env = {
         ...process.env,
         TF_DATA_DIR: path.join(this.dataDir, '.terraform'),
@@ -162,70 +154,67 @@ class OpenTofuCommand {
         TF_VAR_s3_access_key: process.env.S3_ACCESS_KEY,
         TF_VAR_s3_secret_key: process.env.S3_SECRET_KEY
       };
-  
+
       const tfvarsPath = path.join(this.dataDir, 'terraform.tfvars.json');
       const args = ['plan', '-no-color'];
-  
       if (fs.existsSync(tfvarsPath)) {
         args.push(`-var-file=${tfvarsPath}`);
         console.log(`[TOFU] Fichier de variables détecté: ${tfvarsPath}`);
       }
-  
-      let proc;
+
       let output = '';
       let gotOutput = false;
-  
-      // watchdog après 5s sans sortie
+
       const hangTimeout = setTimeout(() => {
         if (!gotOutput) {
-          console.warn(`[TOFU WARNING] tofu plan semble bloqué pour ${this.key} (aucune sortie)`);
+          console.warn(`[TOFU WARNING] tofu plan semble bloqué pour ${this.key}`);
           proc.stdin.write('\n');
         }
       }, 5000);
-  
-      // timeout total (failsafe)
+
       const globalTimeout = setTimeout(() => {
-        console.error(`[TOFU] Timeout global: tofu plan bloqué pour ${this.key}`);
+        console.error(`[TOFU] Timeout global pour ${this.key}`);
         proc.kill('SIGTERM');
-        reject(new Error(`tofu plan timeout pour ${this.key}`));
+        resolve(OpenTofuStatus.fromError(this.key, output, new Error('timeout')));
       }, 30000);
-  
-      proc = spawn(TOFU_BIN, args, {
+
+      const proc = spawn(TOFU_BIN, args, {
         cwd: this.codeDir,
         env,
         stdio: ['pipe', 'pipe', 'pipe']
       });
-  
+
       proc.stdout.on('data', (chunk) => {
         gotOutput = true;
         const data = chunk.toString();
         console.log(`[TOFU OUT] ${data.trim()}`);
         output += data;
       });
-  
+
       proc.stderr.on('data', (chunk) => {
         gotOutput = true;
         const data = chunk.toString();
         console.error(`[TOFU ERR] ${data.trim()}`);
         output += data;
       });
-  
+
       proc.on('error', (err) => {
         clearTimeout(globalTimeout);
         clearTimeout(hangTimeout);
-        reject(err);
+        resolve(OpenTofuStatus.fromError(this.key, output, err));
       });
-  
+
       proc.on('close', (code) => {
         clearTimeout(globalTimeout);
         clearTimeout(hangTimeout);
         if (code !== 0) {
-          return reject(new Error(`tofu plan exited with code ${code}:\n${output}`));
+          resolve(OpenTofuStatus.fromError(this.key, output, new Error(`tofu exited with code ${code}`)));
+        } else {
+          resolve(OpenTofuStatus.fromPlanOutput(this.key, output));
         }
-        resolve(output);
       });
     });
-  }  
+  }
 }
 
 module.exports = OpenTofuCommand;
