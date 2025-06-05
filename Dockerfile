@@ -9,7 +9,7 @@ chmod +x install-opentofu.sh && \
 ./install-opentofu.sh --install-method standalone && \
 rm -f install-opentofu.sh
 
-RUN opentofu version
+RUN tofu version
 
 WORKDIR /app
 
