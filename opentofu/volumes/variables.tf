@@ -1,4 +1,4 @@
-variable "volume" {
+variable "instance" {
   description = "Volume configuration"
   type = object({
     provider    = string

@@ -1,5 +1,5 @@
 module "provider_volume_local" {
-  count          = var.volume.provider == "local" ? 1 : 0
+  count          = var.instance.provider == "local" ? 1 : 0
   source         = "./modules/providers/local"
-  volume_for     = var.volume.volume_for
+  volume_for     = var.instance.volume_for
 }
