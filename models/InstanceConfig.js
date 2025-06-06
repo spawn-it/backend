@@ -13,7 +13,6 @@ class InstanceConfig extends BaseModel {
         network_name,
     }) {
         super();
-        // ... validations
         this.provider = provider;
         this.container_name = container_name;
         this.image = image;

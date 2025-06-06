@@ -1,38 +1,10 @@
 const express = require('express');
 const router = express.Router();
-const deployment = require('../services/spawnIt');
+const deployment = require('../services/OpentofuService');
 const { registerClient, removeClient } = require('../sse/clients');
+const { v4: uuidv4 } = require('uuid');
 const bucketName = process.env.S3_BUCKET;
 
-router.use((req, res, next) => {
-  console.log(`[DEBUG ROUTE] ${new Date().toISOString()} - ${req.method} ${req.path}`);
-  if (req.method === 'POST') {
-    console.log('[DEBUG ROUTE] POST Body:', req.body);
-  }
-  next();
-});
-
-// Liste les buckets S3
-router.get('/buckets', async (req, res) => {
-  try {
-    const buckets = await deployment.listBuckets();
-    res.json({ buckets });
-  } catch (err) {
-    console.error('Erreur listage buckets :', err);
-    res.status(500).json({ error: 'Impossible de lister les buckets' });
-  }
-});
-
-// Liste les clients
-router.get('/clients', async (req, res) => {
-  try {
-    const clients = await deployment.listClients(bucketName);
-    res.json({ clients });
-  } catch (err) {
-    console.error('Erreur listage clients :', err);
-    res.status(500).json({ error: 'Impossible de lister les clients' });
-  }
-});
 
 // Liste les services d'un client
 router.get('/clients/:clientId/services', async (req, res) => {
@@ -84,16 +56,10 @@ router.get('/clients/:clientId/network/config', async (req, res) => {
   }
 });
 
-// Upload de configuration réseau Terraform - ROUTE SPÉCIFIQUE AVANT LES GÉNÉRIQUES
+// Upload de configuration réseau Terraform
 router.post('/clients/:clientId/network/config', async (req, res) => {
   const { clientId } = req.params;
   const config = req.body;
-
-  // AJOUT DE DEBUG
-  console.log(`[TOFU] Upload config réseau pour client ${clientId}`);
-  console.log('[TOFU] Config reçue:', JSON.stringify(config, null, 2));
-  console.log('[TOFU] Type de config:', typeof config);
-  console.log('[TOFU] Keys de config:', Object.keys(config || {}));
 
   // Validation améliorée avec logs
   if (!config) {
@@ -123,7 +89,7 @@ router.post('/clients/:clientId/network/config', async (req, res) => {
   try {
     const key = `clients/${clientId}/network/${config.provider}/terraform.tfvars.json`;
     
-    // Structure attendue par votre système
+
     const networkConfig = {
       instance: {
         provider: config.provider,
@@ -209,8 +175,10 @@ router.post('/clients/:clientId/:serviceId/plan', async (req, res) => {
 });
 
 // Upload de configuration terraform pour services - ROUTE SPÉCIFIQUE
-router.post('/clients/:clientId/:serviceId/config', async (req, res) => {
-  const { clientId, serviceId } = req.params;
+router.post('/clients/:clientId/:serviceType/config', async (req, res) => {
+  const { clientId, serviceType } = req.params;
+  const serviceId = uuidv4();
+
   const config = req.body;
   
   console.log(`[DEBUG] Route service config: ${clientId}/${serviceId}/config`);
@@ -218,6 +186,19 @@ router.post('/clients/:clientId/:serviceId/config', async (req, res) => {
   config['network_name'] = `network-${clientId}`;
 
   try {
+
+    const serviceInfomation = {
+      serviceName: config.container_name,
+      serviceType : serviceType,
+      autoPlan: false,
+      autoApply: false,
+    }
+
+    config['container_name'] = uuidv4();
+
+    const serviceKey = `clients/${clientId}/${serviceId}/info.json`;
+    await deployment.createFile(bucketName, serviceKey, JSON.stringify(serviceInfomation, null, 2));
+
     const key = `clients/${clientId}/${serviceId}/terraform.tfvars.json`;
     
     const serviceConfig = {
@@ -225,7 +206,7 @@ router.post('/clients/:clientId/:serviceId/config', async (req, res) => {
     };
     await deployment.createFile(bucketName, key, JSON.stringify(serviceConfig, null, 2));
     
-    res.json({ status: 'uploaded', key });
+    res.json({ status: 'uploaded', serviceId });
   } catch (err) {
     console.error('Erreur upload config :', err);
     res.status(500).json({ error: "Échec de l'upload de la configuration" });

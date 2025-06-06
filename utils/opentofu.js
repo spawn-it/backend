@@ -1,21 +1,11 @@
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
-const OpenTofuStatus = require('./OpenTofuStatus');
+const OpenTofuStatus = require('../models/OpenTofuStatus');
 
 const TOFU_BIN = process.env.TOFU_BIN || 'tofu';
 
-/**
- * OpenTofuCommand class: wraps tofu CLI commands with context (clientId, serviceId, codeDir, dataDir).
- * Le code OpenTofu est dans codeDir, les données client/service dans dataDir.
- */
 class OpenTofuCommand {
-  /**
-   * @param {string} clientId - unique identifier for the client
-   * @param {string} serviceId - unique identifier for the service
-   * @param {string} codeDir - directory where OpenTofu code is located (./opentofu/)
-   * @param {string} dataDir - directory where client/service data is stored (./workdirs/client/service/)
-   */
   constructor(clientId, serviceId, codeDir, dataDir) {
     this.clientId = clientId;
     this.serviceId = serviceId;
@@ -25,10 +15,6 @@ class OpenTofuCommand {
     this.initialized = false;
   }
 
-  /**
-   * Exécute 'tofu init' dans le répertoire de code avec les bonnes variables d'environnement
-   * @returns {Promise<boolean>} - true si l'initialisation a réussi
-   */
   async ensureInitialized() {
     if (this.initialized) return true;
 
@@ -95,11 +81,6 @@ class OpenTofuCommand {
     }
   }
 
-  /**
-   * Spawns a tofu command (plan, apply, destroy) with proper initialization.
-   * @param {string} action - one of 'plan', 'apply', 'destroy'
-   * @returns {Promise<ChildProcess>}
-   */
   async spawnCommand(action) {
     const initialized = await this.ensureInitialized();
     if (!initialized) {
@@ -108,11 +89,19 @@ class OpenTofuCommand {
 
     const args = [action];
     
-    // CORRECTION: Ajouter le fichier de variables pour toutes les actions
     const tfvarsPath = path.join(this.dataDir, 'terraform.tfvars.json');
     if (fs.existsSync(tfvarsPath)) {
       args.push(`-var-file=${tfvarsPath}`);
       console.log(`[TOFU] Utilisation du fichier de variables: ${tfvarsPath}`);
+      
+      // 🔍 DEBUG: Afficher le contenu du fichier de variables
+      try {
+        const varsContent = fs.readFileSync(tfvarsPath, 'utf8');
+        console.log(`[TOFU DEBUG] Contenu du fichier de variables:`);
+        console.log(varsContent);
+      } catch (err) {
+        console.error(`[TOFU DEBUG] Erreur lecture fichier vars: ${err.message}`);
+      }
     }
     
     // Ajouter -auto-approve pour apply et destroy
@@ -131,8 +120,64 @@ class OpenTofuCommand {
       TF_VAR_s3_secret_key: process.env.S3_SECRET_KEY
     };
 
+    // 🔍 DEBUG: Afficher la commande complète et l'environnement
+    console.log(`[TOFU DEBUG] Commande complète: ${TOFU_BIN} ${args.join(' ')}`);
+    console.log(`[TOFU DEBUG] Répertoire de travail: ${this.codeDir}`);
+    console.log(`[TOFU DEBUG] Variables d'environnement TF_*:`);
+    Object.keys(env).filter(k => k.startsWith('TF_')).forEach(k => {
+      console.log(`  ${k}=${env[k]}`);
+    });
+
     console.log(`[TOFU] Exécution de 'tofu ${args.join(' ')}' pour ${this.key}`);
-    return spawn(TOFU_BIN, args, { cwd: this.codeDir, env });
+    
+    const proc = spawn(TOFU_BIN, args, { cwd: this.codeDir, env });
+
+    // 🔍 DEBUG: Logger tous les événements du processus
+    proc.on('spawn', () => {
+      console.log(`[TOFU DEBUG] Processus spawné avec PID: ${proc.pid}`);
+    });
+
+    proc.on('error', (err) => {
+      console.error(`[TOFU DEBUG] Erreur du processus: ${err.message}`);
+    });
+
+    proc.on('exit', (code, signal) => {
+      console.log(`[TOFU DEBUG] Processus terminé - Code: ${code}, Signal: ${signal}`);
+    });
+
+    proc.on('close', (code, signal) => {
+      console.log(`[TOFU DEBUG] Processus fermé - Code: ${code}, Signal: ${signal}`);
+    });
+
+    // 🔍 DEBUG: Intercepeter TOUS les outputs en temps réel
+    proc.stdout.on('data', (chunk) => {
+      const data = chunk.toString();
+      console.log(`[TOFU STDOUT] ${data}`);
+    });
+
+    proc.stderr.on('data', (chunk) => {
+      const data = chunk.toString();
+      console.log(`[TOFU STDERR] ${data}`);
+    });
+
+    // 🔍 DEBUG: Vérifier si le processus attend une entrée
+    let lastOutputTime = Date.now();
+    const checkStuck = setInterval(() => {
+      const timeSinceOutput = Date.now() - lastOutputTime;
+      if (timeSinceOutput > 10000) { // 10 secondes sans output
+        console.warn(`[TOFU DEBUG] ⚠️  Pas d'output depuis ${timeSinceOutput}ms - processus possiblement bloqué`);
+        console.warn(`[TOFU DEBUG] État du processus: killed=${proc.killed}, pid=${proc.pid}`);
+      }
+    }, 5000);
+
+    proc.stdout.on('data', () => { lastOutputTime = Date.now(); });
+    proc.stderr.on('data', () => { lastOutputTime = Date.now(); });
+
+    proc.on('close', () => {
+      clearInterval(checkStuck);
+    });
+
+    return proc;
   }
 
   async runPlan() {

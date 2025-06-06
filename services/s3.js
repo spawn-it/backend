@@ -72,7 +72,6 @@ async function getFile(bucket, key) {
   }
 }
 
-// Liste les services d’un client
 async function listServices(bucket, clientId, basePrefix = 'clients/') {
   const prefix = `${basePrefix}${clientId}/`;
   const data = await s3Client.send(new ListObjectsV2Command({
@@ -80,7 +79,25 @@ async function listServices(bucket, clientId, basePrefix = 'clients/') {
     Prefix: prefix,
     Delimiter: '/',
   }));
-  return (data.CommonPrefixes || []).map(cp => cp.Prefix.replace(prefix, '').replace(/\/$/, ''));
+
+  const serviceNames = (data.CommonPrefixes || []).map(cp => cp.Prefix.replace(prefix, '').replace(/\/$/, ''));
+
+  const services = {};
+  for (const service of serviceNames) {
+    const infoKey = `${prefix}${service}/info.json`;
+    try {
+      const infoContent = await getFile(bucket, infoKey);
+      services[service] = JSON.parse(infoContent);
+    } catch (err) {
+      if (err.code === 'NoSuchKey') {
+        services[service] = null;
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  return services;
 }
 
 // Télécharge tous les fichiers d’un préfixe S3 dans un dossier local
