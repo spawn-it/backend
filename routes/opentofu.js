@@ -60,6 +60,7 @@ router.get('/clients/:clientId/network/config', async (req, res) => {
 router.post('/clients/:clientId/network/config', async (req, res) => {
   const { clientId } = req.params;
   const config = req.body;
+  console.log(`[DEBUG ROUTE CONFIG] Received for ${clientId}/${serviceId}:`, JSON.stringify(configFromFrontend, null, 2));
 
   // Validation améliorée avec logs
   if (!config) {
