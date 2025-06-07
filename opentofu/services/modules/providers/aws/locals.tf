@@ -15,6 +15,10 @@ locals {
     for p in local.processed_ports : "-p ${p.external}:${p.internal}"
   ]
 
+  formatted_volume_mounts = [
+    for vm in var.docker_instance_config.volume_mounts : "-v ${vm.host_path}:${vm.container_path}"
+  ]
+
   generic_docker_user_data = <<-EOF
 #!/bin/bash
 set -e
@@ -28,10 +32,20 @@ IMAGE_NAME="${var.docker_instance_config.image}"
 echo "Pulling Docker image: $${IMAGE_NAME}"
 docker pull "$${IMAGE_NAME}"
 
+%{if length(var.docker_instance_config.volume_mounts) > 0 ~}
+echo "Creating host directories for volume mounts..."
+%{for vm in var.docker_instance_config.volume_mounts ~}
+mkdir -p "${vm.host_path}"
+echo "Ensured host directory ${vm.host_path} exists."
+%{endfor ~}
+%{endif ~}
+
 DOCKER_RUN_CMD="docker run -d --restart always \\
   ${join(" \\\n  ", local.formatted_env_vars)} \\
   ${join(" \\\n  ", local.formatted_port_mappings)} \\
+  ${join(" \\\n  ", local.formatted_volume_mounts)} \\
   --log-driver json-file --log-opt max-size=10m --log-opt max-file=3 \\
+  --name "${var.docker_instance_config.container_name}" \\
   $${IMAGE_NAME} ${join(" ", var.docker_instance_config.command)}"
 
 echo "Executing Docker command:"
