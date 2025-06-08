@@ -45,36 +45,21 @@ router.delete('/clients/:clientId/:serviceId', async (req, res) => {
 
     // Execute destroy action
     try {
-      const fakeRes = {
-        json: () => {},
-        headersSent: false,
-        status: () => ({ json: () => {} })
-      };
-
-      await tofuService.executeAction(Action.DESTROY, clientId, serviceId, bucketName, fakeRes);
-
-      // Wait for destroy to complete
-      await new Promise(resolve => setTimeout(resolve, 5000));
-
-    } catch (destroyErr) {
-      console.warn(`Destroy failed for ${clientId}/${serviceId}:`, destroyErr.message);
-      // Continue even if destroy fails (infrastructure might already be destroyed)
+      await tofuService.executeAction(Action.DESTROY, clientId, serviceId, bucketName, null);
+    } catch (e) {
+      console.warn(`Destroy failed for ${clientId}/${serviceId}:`, e.message);
     }
 
-    // Delete S3 files
-    const servicePrefix = PathHelper.getServicePrefix(clientId, serviceId);
-    await tofuService.deleteServiceFiles(bucketName, servicePrefix);
+    const prefix = PathHelper.getServicePrefix(clientId, serviceId);
+    await Promise.all([
+      tofuService.deleteServiceFiles(bucketName, prefix),
+      tofuService.cleanupService(clientId, serviceId)
+    ]);
 
-    res.json({
-      status: 'deleted',
-      message: `Service ${serviceId} completely deleted`
-    });
-
+    res.json({ status: 'deleted', message: `Service ${serviceId} completely deleted` });
   } catch (err) {
     console.error(`Error deleting service ${clientId}/${serviceId}:`, err);
-    if (!res.headersSent) {
-      res.status(500).json({ error: 'Error deleting service' });
-    }
+    if (!res.headersSent) res.status(500).json({ error: 'Error deleting service' });
   }
 });
 
