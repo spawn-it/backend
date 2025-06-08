@@ -8,9 +8,9 @@ const { sendToClients } = require('../../sse/clients');
 const s3Service = require('../s3/S3Service');
 const workingDirectoryService = require('../WorkingDirectoryService');
 const NetworkService = require('../NetworkService');
-const instanceManager = require('../managers/InstanceManager');
-const jobManager = require('../managers/JobManager');
-const planLoopManager = require('../managers/PlanLoopManager');
+const instanceManager = require('../manager/InstanceManager');
+const jobManager = require('../manager/JobManager');
+const planLoopManager = require('../manager/PlanLoopManager');
 const { isNetworkService } = require('../../config/constants');
 const PathHelper = require('../../utils/pathHelper');
 
