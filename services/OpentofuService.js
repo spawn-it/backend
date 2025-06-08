@@ -38,6 +38,10 @@ async function createFile(bucket, key, content) {
   return s3.createFile(bucket, key, content);
 }
 
+async function deleteServiceFiles(bucket, servicePrefix) {
+  return s3.deleteServiceFiles(bucket, servicePrefix);
+}
+
 /**
  * Vérifie si le fichier de configuration réseau existe dans S3
  */
@@ -117,6 +121,7 @@ module.exports = {
   listClients,
   listServices,
   createFile,
+  deleteServiceFiles,
   checkNetworkConfigExists,
   
   executePlan,

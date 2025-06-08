@@ -1,0 +1,11 @@
+{
+  "serviceName": "myMincraft",
+  "serviceType": "minecraft",
+  "autoPlan": false,
+  "autoApply": false,
+  "lastAction": {
+    "action": "apply",
+    "timestamp": "2025-06-07T19:34:33.425Z"
+  },
+  "status": {}
+}

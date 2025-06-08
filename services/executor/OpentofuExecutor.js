@@ -67,22 +67,43 @@ class OpentofuExecutor {
         sendToClients(clientId, serviceId, text, 'error');
       });
 
-      proc.on('close', code => {
+      proc.on('close', async (code) => {
         jobManager.removeJob(jobId);
-        const status = code === 0
-          ? new OpenTofuStatus(`${clientId}/${serviceId}`, 'success', output)
-          : OpenTofuStatus.fromError(`${clientId}/${serviceId}`, output, new Error(`${action} exited with code ${code}`));
+        
+        let status;
+        if (code === 0) {
+          // Succès - créer depuis l'output avec l'action correspondante
+          if (action === 'plan') {
+            status = OpenTofuStatus.fromPlanOutput(`${clientId}/${serviceId}`, output, action);
+          } else {
+            // Pour apply, destroy, etc. - on assume que c'est appliqué
+            status = new OpenTofuStatus(`${clientId}/${serviceId}`, action, output, new Date(), null, true);
+          }
+        } else {
+          // Erreur
+          status = OpenTofuStatus.fromError(
+            `${clientId}/${serviceId}`, 
+            output, 
+            new Error(`${action} exited with code ${code}`),
+            action
+          );
+        }
+
+        // Mettre à jour le status dans S3
+        await s3Service.updateInfoJsonStatus(bucket, clientId, serviceId, status.toJSON());
+        
+        // Si c'est une action réelle (pas un plan), mettre à jour le lastAction au niveau du service
+        if (action !== 'plan' && code === 0) {
+          await s3Service.updateInfoJsonLastAction(bucket, clientId, serviceId, action);
+        }
 
         sendToClients(clientId, serviceId, JSON.stringify(status.toJSON()), 'end');
-
-        if (action === 'apply') {
-          // planLoopManager.start(clientId, serviceId, dataDir);
-        }
+        planLoopManager.start(clientId, serviceId, dataDir);
       });
 
       proc.on('error', err => {
         jobManager.removeJob(jobId);
-        const status = OpenTofuStatus.fromError(`${clientId}/${serviceId}`, output, err);
+        const status = OpenTofuStatus.fromError(`${clientId}/${serviceId}`, output, err, action);
         sendToClients(clientId, serviceId, JSON.stringify(status.toJSON()), 'error');
 
         if (!res.headersSent) res.status(500).json({ error: err.message });

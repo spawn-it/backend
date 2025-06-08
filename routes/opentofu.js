@@ -18,6 +18,49 @@ router.get('/clients/:clientId/services', async (req, res) => {
   }
 });
 
+router.delete('/clients/:clientId/:serviceId', async (req, res) => {
+  const { clientId, serviceId } = req.params;
+  console.log(`[DEBUG] Route delete service complet: ${clientId}/${serviceId}`);
+
+  try {
+    deployment.stopPlan(clientId, serviceId);
+    try {
+      const fakeRes = {
+        json: () => {}, 
+        headersSent: false,
+        status: () => ({ json: () => {} })
+      };
+      
+      console.log(`[DELETE] Début du destroy pour ${clientId}/${serviceId}`);
+      await deployment.executeAction('destroy', clientId, serviceId, bucketName, fakeRes);
+      
+      // Attendre que le destroy se termine
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      console.log(`[DELETE] Destroy terminé pour ${clientId}/${serviceId}`);
+      
+    } catch (destroyErr) {
+      console.warn(`[DELETE] Erreur lors du destroy de ${clientId}/${serviceId}:`, destroyErr.message);
+      // Continuer même si le destroy échoue (infrastructure peut déjà être détruite)
+    }
+
+    console.log(`[DELETE] Suppression des fichiers S3 pour ${clientId}/${serviceId}`);
+    const servicePrefix = `clients/${clientId}/${serviceId}/`;
+    await deployment.deleteServiceFiles(bucketName, servicePrefix);
+
+    console.log(`[DELETE] Service ${clientId}/${serviceId} supprimé complètement`);
+    res.json({
+      status: 'deleted',
+      message: `Service ${serviceId} supprimé complètement`
+    });
+
+  } catch (err) {
+    console.error(`Erreur suppression complète de ${clientId}/${serviceId}:`, err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Erreur lors de la suppression du service' });
+    }
+  }
+});
+
 // SSE pour la sortie en direct de plan
 router.get('/clients/:clientId/:serviceId/plan/stream', (req, res) => {
   const { clientId, serviceId } = req.params;
@@ -124,7 +167,7 @@ router.get('/clients/:clientId/network/status', async (req, res) => {
 
   try {
     const status = await deployment.checkNetworkStatus(clientId, bucketName, key);
-    res.json(status.toJSON());
+    res.json(status);
   } catch (err) {
     console.error(`[TOFU] Erreur statut réseau ${clientId}:`, err);
     res.status(500).json({ error: 'Impossible de vérifier le statut réseau' });
@@ -190,8 +233,8 @@ router.post('/clients/:clientId/:serviceType/config', async (req, res) => {
     const serviceInfomation = {
       serviceName: config.container_name,
       serviceType : serviceType,
-      autoPlan: false,
       autoApply: false,
+      status: {},
     }
 
     config['container_name'] = uuidv4();
@@ -227,7 +270,7 @@ router.delete('/clients/:clientId/:serviceId/plan', async (req, res) => {
   }
 });
 
-// Appliquer ou détruire un service - ROUTE GÉNÉRIQUE EN DERNIER
+// Appliquer ou détruire un service
 router.post('/clients/:clientId/:serviceId/:action', async (req, res) => {
   const { clientId, serviceId, action } = req.params;
   const validActions = ['apply', 'destroy'];

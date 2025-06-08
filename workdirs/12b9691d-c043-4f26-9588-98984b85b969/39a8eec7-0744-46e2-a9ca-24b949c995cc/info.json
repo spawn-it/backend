@@ -1,0 +1,6 @@
+{
+  "serviceName": "ruru",
+  "serviceType": "rust",
+  "autoApply": false,
+  "status": {}
+}

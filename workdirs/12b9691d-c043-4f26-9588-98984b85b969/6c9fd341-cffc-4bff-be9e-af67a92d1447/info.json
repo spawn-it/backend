@@ -1,0 +1,15 @@
+{
+  "serviceName": "dsdsds",
+  "serviceType": "minecraft",
+  "autoApply": false,
+  "status": {
+    "key": "12b9691d-c043-4f26-9588-98984b85b969/6c9fd341-cffc-4bff-be9e-af67a92d1447",
+    "lastAction": "plan",
+    "output": "module.provider_infra_local[0].data.docker_network.custom_network: Reading...\nmodule.provider_infra_local[0].docker_image.instance: Refreshing state... [id=sha256:f825e7eca7de914ee8204d1608e1893138e9a3230e5086d798bb5d23d1f33be7itzg/minecraft-server:latest]\nmodule.provider_infra_local[0].data.docker_network.custom_network: Read complete after 0s [id=acba565eccf4c089f143857d7184570768f82b0807184db19f9d3573c267a71e]\nmodule.provider_infra_local[0].docker_container.instance: Refreshing state... [id=d428d6d95501f4e1f17a744d474490b25c3a0e413e678d7771e1472c402feed0]\n\nNo changes. Your infrastructure matches the configuration.\n\nOpenTofu has compared your real infrastructure against your configuration and\nfound no differences, so no changes are needed.\n",
+    "timestamp": "2025-06-08T12:04:40.274Z",
+    "errorMessage": null,
+    "errorStack": null,
+    "applied": true
+  },
+  "lastAction": "apply"
+}

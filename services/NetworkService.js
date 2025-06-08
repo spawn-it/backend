@@ -1,6 +1,7 @@
 const s3 = require('./s3');
 const WorkingDirectoryService = require('./WorkingDirectoryService');
 const instanceManager = require('./manager/InstanceManager');
+const OpenTofuStatus = require('../models/OpenTofuStatus');
 
 const NETWORK_CODE_DIR = require('../config/paths').NETWORK_CODE_DIR;
 
@@ -33,9 +34,25 @@ class NetworkService {
     // Initialiser (si besoin)
     await networkRunner.ensureInitialized();
 
-    const status = await networkRunner.runPlan();
-    if (!status.isCompliant()) {
-      throw new Error(`Network for client ${clientId} provider ${provider} is not ready: ${status.state}`);
+    // runPlan() retourne maintenant une string, pas un OpenTofuStatus
+    const planOutput = await networkRunner.runPlan();
+    
+    // Récupérer la dernière action depuis S3 si elle existe
+    let lastAction = 'plan';
+    try {
+      const existingInfo = await s3.getInfoJson(bucket, clientId, `network/${provider}`);
+      if (existingInfo && existingInfo.lastAction) {
+        lastAction = existingInfo.lastAction;
+      }
+    } catch (infoErr) {
+      // Pas grave si on ne peut pas récupérer l'info existante
+    }
+
+    // Créer le status depuis l'output du plan
+    const status = OpenTofuStatus.fromPlanOutput(`${clientId}/network/${provider}`, planOutput, lastAction);
+
+    if (!status.applied) {
+      throw new Error(`Network for client ${clientId} provider ${provider} is not ready. Plan output: ${planOutput.substring(0, 200)}...`);
     }
 
     console.log(`[TOFU] Network for client ${clientId} provider ${provider} is ready.`);
@@ -52,37 +69,53 @@ class NetworkService {
       if (err.code === 'NoSuchKey') {
         // Retourner un statut "non compliant" au lieu de lever une erreur
         return {
-          isCompliant: () => false,
-          toJSON: () => ({ 
-            compliant: false, 
-            state: 'missing_config', 
-            message: 'Configuration réseau manquante' 
-          })
+          compliant: false,
+          applied: false,
+          key: `${clientId}/network`,
+          lastAction: 'unknown',
+          output: 'Configuration réseau manquante',
+          timestamp: new Date().toISOString(),
+          errorMessage: 'Configuration réseau manquante',
+          errorStack: null
         };
       }
       throw err;
     }
-
+  
     // Extraire le provider du chemin
     const pathParts = key.split('/');
     const provider = pathParts[pathParts.length - 2]; // network/[provider]/terraform.tfvars.json
+    const serviceId = `network/${provider}`;
     
-    const dataDir = await WorkingDirectoryService.prepare(clientId, `network/${provider}`, bucket);
-    const runner = instanceManager.getInstance(clientId, `network/${provider}`, dataDir, NETWORK_CODE_DIR);
+    const dataDir = await WorkingDirectoryService.prepare(clientId, serviceId, bucket);
+    const runner = instanceManager.getInstance(clientId, serviceId, dataDir, NETWORK_CODE_DIR);
     
     try {
       await runner.ensureInitialized();
-      return await runner.runPlan();
+      
+      // runPlan() retourne maintenant une string, pas un OpenTofuStatus
+      const planOutput = await runner.runPlan();
+      
+      // Récupérer la dernière action depuis S3 si elle existe
+      let lastAction = 'plan';
+      try {
+        const existingInfo = await s3.getInfoJson(bucket, clientId, serviceId);
+        if (existingInfo && existingInfo.lastAction) {
+          lastAction = existingInfo.lastAction;
+        }
+      } catch (infoErr) {
+        // Pas grave si on ne peut pas récupérer l'info existante
+      }
+      
+      // Créer le status depuis l'output et retourner le JSON
+      const status = OpenTofuStatus.fromPlanOutput(`${clientId}/${serviceId}`, planOutput, lastAction);
+      return status.toJSON();
+      
     } catch (err) {
       console.error(`[TOFU] Error running plan for network ${clientId}/${provider}:`, err);
-      return {
-        isCompliant: () => false,
-        toJSON: () => ({ 
-          compliant: false, 
-          state: 'error', 
-          message: err.message 
-        })
-      };
+      
+      const errorStatus = OpenTofuStatus.fromError(`${clientId}/${serviceId}`, '', err, 'plan');
+      return errorStatus.toJSON();
     }
   }
 }

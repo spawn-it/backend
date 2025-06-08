@@ -1,4 +1,4 @@
-const { S3Client, ListBucketsCommand, ListObjectsV2Command, GetObjectCommand, PutObjectCommand } = require('@aws-sdk/client-s3');
+const { S3Client, ListBucketsCommand, ListObjectsV2Command, GetObjectCommand, PutObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 const { pipeline } = require('stream');
 const { promisify } = require('util');
 const fs = require('fs');
@@ -123,6 +123,77 @@ async function downloadFiles(bucket, prefix, destinationFolder) {
   return destinationFolder;
 }
 
+async function updateInfoJsonStatus(bucket, clientId, serviceId, newStatus) {
+  const key = `clients/${clientId}/${serviceId}/info.json`;
+
+  let info = {};
+  try {
+    const fileContent = await getFile(bucket, key);
+    info = JSON.parse(fileContent);
+  } catch (err) {
+    if (err.code !== 'NoSuchKey') throw err;
+    info = {};
+  }
+
+  info.status = newStatus;
+  
+  await createFile(bucket, key, JSON.stringify(info, null, 2));
+}
+
+async function updateInfoJsonLastAction(bucket, clientId, serviceId, action) {
+  const key = `clients/${clientId}/${serviceId}/info.json`;
+
+  let info = {};
+  try {
+    const fileContent = await getFile(bucket, key);
+    info = JSON.parse(fileContent);
+  } catch (err) {
+    if (err.code !== 'NoSuchKey') throw err;
+    info = {};
+  }
+
+  // Mettre à jour seulement le lastAction
+  info.lastAction = action;
+  
+  await createFile(bucket, key, JSON.stringify(info, null, 2));
+}
+
+async function deleteServiceFiles(bucket, prefix) {
+  try {
+    console.log(`[S3] Suppression des fichiers avec préfixe: ${prefix}`);
+    
+    // Lister tous les objets avec ce préfixe
+    const listCommand = new ListObjectsV2Command({
+      Bucket: bucket,
+      Prefix: prefix
+    });
+    
+    const listResponse = await s3Client.send(listCommand);
+    
+    if (!listResponse.Contents || listResponse.Contents.length === 0) {
+      console.log(`[S3] Aucun fichier à supprimer pour le préfixe: ${prefix}`);
+      return;
+    }
+
+    console.log(`[S3] ${listResponse.Contents.length} fichier(s) à supprimer`);
+
+    for (const object of listResponse.Contents) {
+      const deleteCommand = new DeleteObjectCommand({
+        Bucket: bucket,
+        Key: object.Key
+      });
+      
+      await s3Client.send(deleteCommand);
+      console.log(`[S3] Fichier supprimé: ${object.Key}`);
+    }
+
+    console.log(`[S3] Tous les fichiers supprimés pour: ${prefix}`);
+  } catch (err) {
+    console.error(`[S3] Erreur lors de la suppression des fichiers ${prefix}:`, err);
+    throw err;
+  }
+}
+
 module.exports = {
   s3Client,
   listBuckets,
@@ -131,4 +202,7 @@ module.exports = {
   getFile,
   createFile,
   downloadFiles,
+  updateInfoJsonStatus,
+  updateInfoJsonLastAction,
+  deleteServiceFiles
 };
