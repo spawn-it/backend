@@ -1,136 +1,162 @@
+/**
+ * Main OpenTofu Service - Central orchestrator for all OpenTofu operations
+ * Provides high-level interface for infrastructure management
+ */
 const OpentofuExecutor = require('./executor/OpentofuExecutor');
 const NetworkService = require('./NetworkService');
 const jobManager = require('./manager/JobManager');
 const planLoopManager = require('./manager/PlanLoopManager');
-const s3 = require('./s3');
+const s3Service = require('./s3/S3Service');
+const workingDirectoryService = require('./WorkingDirectoryService');
 const { OPENTOFU_CODE_DIR, NETWORK_CODE_DIR } = require('../config/paths');
 
-/**
- * TofuService - Service principal qui remplace l'orchestrateur
- * Combine les opérations S3 et Terraform sans les coupler
- */
+class TofuService {
+  /**
+   * Lists all available S3 buckets
+   * @returns {Promise<string[]>} Array of bucket names
+   */
+  async listBuckets() {
+    return s3Service.listBuckets();
+  }
 
-/**
- * Liste tous les buckets S3 disponibles
- */
-async function listBuckets() {
-  return s3.listBuckets();
+  /**
+   * Lists all clients in a specific bucket
+   * @param {string} bucket - S3 bucket name
+   * @returns {Promise<string[]>} Array of client identifiers
+   */
+  async listClients(bucket) {
+    return s3Service.listClients(bucket);
+  }
+
+  /**
+   * Lists all services for a specific client
+   * @param {string} bucket - S3 bucket name
+   * @param {string} clientId - Client identifier
+   * @returns {Promise<Object>} Object mapping service IDs to their info
+   */
+  async listServices(bucket, clientId) {
+    return s3Service.listServices(bucket, clientId);
+  }
+
+  /**
+   * Creates a file in S3
+   * @param {string} bucket - S3 bucket name
+   * @param {string} key - S3 object key
+   * @param {string} content - File content
+   * @returns {Promise<void>}
+   */
+  async createFile(bucket, key, content) {
+    return s3Service.createFile(bucket, key, content);
+  }
+
+  /**
+   * Deletes all files for a service
+   * @param {string} bucket - S3 bucket name
+   * @param {string} servicePrefix - S3 prefix for service files
+   * @returns {Promise<void>}
+   */
+  async deleteServiceFiles(bucket, servicePrefix) {
+    return s3Service.deleteServiceFiles(bucket, servicePrefix);
+  }
+
+  /**
+   * Checks if network configuration file exists
+   * @param {string} bucket - S3 bucket name
+   * @param {string} key - S3 key for network config
+   * @returns {Promise<string>} File content
+   */
+  async checkNetworkConfigExists(bucket, key) {
+    return s3Service.getFile(bucket, key);
+  }
+
+  /**
+   * Starts a continuous plan loop for a service
+   * @param {string} clientId - Client identifier
+   * @param {string} serviceId - Service identifier
+   * @param {string} bucket - S3 bucket name
+   * @returns {Promise<void>}
+   */
+  async executePlan(clientId, serviceId, bucket) {
+    return OpentofuExecutor.executePlan(clientId, serviceId, bucket);
+  }
+
+  /**
+   * Executes a Terraform action (apply, destroy, plan)
+   * @param {string} action - Action to execute
+   * @param {string} clientId - Client identifier
+   * @param {string} serviceId - Service identifier
+   * @param {string} bucket - S3 bucket name
+   * @param {Object} res - Express response object
+   * @param {string} opentofuCodeDir - OpenTofu code directory
+   * @returns {Promise<void>}
+   */
+  async executeAction(action, clientId, serviceId, bucket, res, opentofuCodeDir = OPENTOFU_CODE_DIR) {
+    return OpentofuExecutor.executeAction(action, clientId, serviceId, bucket, res, opentofuCodeDir);
+  }
+
+  /**
+   * Stops a running plan loop
+   * @param {string} clientId - Client identifier
+   * @param {string} serviceId - Service identifier
+   * @returns {boolean} True if stopped, false if not found
+   */
+  stopPlan(clientId, serviceId) {
+    return planLoopManager.stop(clientId, serviceId);
+  }
+
+  /**
+   * Cancels a running job
+   * @param {string} jobId - Job identifier
+   * @returns {boolean} True if cancelled, false if not found
+   */
+  cancelJob(jobId) {
+    return jobManager.cancelJob(jobId);
+  }
+
+  /**
+   * Checks network infrastructure status
+   * @param {string} clientId - Client identifier
+   * @param {string} bucket - S3 bucket name
+   * @param {string} key - S3 key for network config
+   * @returns {Promise<Object>} Network status object
+   */
+  async checkNetworkStatus(clientId, bucket, key) {
+    return NetworkService.checkStatus(clientId, bucket, key);
+  }
+
+  /**
+   * Gets service statistics and monitoring info
+   * @returns {Object} Statistics object with active jobs and loops
+   */
+  getStats() {
+    return {
+      activeJobs: jobManager.getActiveJobs().length,
+      activePlanLoops: planLoopManager.getActiveLoops().length,
+      jobIds: jobManager.getActiveJobs(),
+      planLoopKeys: planLoopManager.getActiveLoops()
+    };
+  }
+
+  /**
+   * Cleans up all resources for a specific client
+   * @param {string} clientId - Client identifier
+   * @returns {Promise<void>}
+   */
+  async cleanupClient(clientId) {
+    planLoopManager.stopAllForClient(clientId);
+    await workingDirectoryService.cleanupClient(clientId);
+  }
+
+  /**
+   * Cleans up resources for a specific service
+   * @param {string} clientId - Client identifier
+   * @param {string} serviceId - Service identifier
+   * @returns {Promise<void>}
+   */
+  async cleanupService(clientId, serviceId) {
+    planLoopManager.stop(clientId, serviceId);
+    await workingDirectoryService.cleanup(clientId, serviceId);
+  }
 }
 
-/**
- * Liste les clients dans un bucket spécifique
- */
-async function listClients(bucket) {
-  return s3.listClients(bucket);
-}
-
-/**
- * Liste les services d'un client dans un bucket
- */
-async function listServices(bucket, clientId) {
-  return s3.listServices(bucket, clientId);
-}
-
-/**
- * Upload un fichier vers S3 pour un client/service
- */
-async function createFile(bucket, key, content) {
-  return s3.createFile(bucket, key, content);
-}
-
-async function deleteServiceFiles(bucket, servicePrefix) {
-  return s3.deleteServiceFiles(bucket, servicePrefix);
-}
-
-/**
- * Vérifie si le fichier de configuration réseau existe dans S3
- */
-async function checkNetworkConfigExists(bucket, key) {
-  return s3.getFile(bucket, key);
-}
-
-
-/**
- * Prépare le répertoire de travail et démarre une boucle de plan Terraform continue
- */
-async function executePlan(clientId, serviceId, bucket) {
-  return OpentofuExecutor.executePlan(clientId, serviceId, bucket);
-}
-
-/**
- * Exécute une action Terraform (plan, apply, destroy) pour un client/service
- */
-async function executeAction(action, clientId, serviceId, bucket, res, opentofuCodeDir = OPENTOFU_CODE_DIR) {
-  return OpentofuExecutor.executeAction(action, clientId, serviceId, bucket, res, opentofuCodeDir);
-}
-
-/**
- * Arrête une boucle de plan en cours pour un client/service
- */
-function stopPlan(clientId, serviceId) {
-  return planLoopManager.stop(clientId, serviceId);
-}
-
-/**
- * Arrête une boucle de plan (alias)
- */
-function stopPlanLoop(clientId, serviceId) {
-  return planLoopManager.stop(clientId, serviceId);
-}
-
-/**
- * Annule un job Terraform en cours par jobId
- */
-function cancelJob(jobId) {
-  return jobManager.cancelJob(jobId);
-}
-
-/**
- * Exécute un plan tofu pour le réseau et retourne OpenTofuStatus
- */
-async function checkNetworkStatus(clientId, bucket, key) {
-  return NetworkService.checkStatus(clientId, bucket, key);
-}
-
-// === UTILITAIRES ===
-
-/**
- * Obtient les statistiques du service
- */
-function getStats() {
-  return {
-    activeJobs: jobManager.getActiveJobs().length,
-    activePlanLoops: planLoopManager.getActiveLoops().length,
-    jobIds: jobManager.getActiveJobs(),
-    planLoopKeys: planLoopManager.getActiveLoops()
-  };
-}
-
-/**
- * Nettoie toutes les ressources pour un client
- */
-function cleanupClient(clientId) {
-  planLoopManager.stopAllForClient(clientId);
-}
-
-module.exports = {
-  OPENTOFU_CODE_DIR,
-  NETWORK_CODE_DIR,
-  
-  listBuckets,
-  listClients,
-  listServices,
-  createFile,
-  deleteServiceFiles,
-  checkNetworkConfigExists,
-  
-  executePlan,
-  executeAction,
-  stopPlan,
-  stopPlanLoop,
-  cancelJob,
-  checkNetworkStatus,
-  
-  getStats,
-  cleanupClient
-};
+module.exports = new TofuService();

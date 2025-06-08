@@ -1,10 +1,16 @@
+/**
+ * Manager for continuous Terraform plan loops
+ * Handles starting, stopping, and monitoring plan execution loops
+ */
 const { sendToClients } = require('../../sse/clients');
 const OpenTofuStatus = require('../../models/OpenTofuStatus');
-const s3 = require('../s3');
+const s3Service = require('../s3/S3Service');
 const InstanceConfig = require('../../models/InstanceConfig');
 const NetworkService = require('../NetworkService');
-const instanceManager = require('../manager/InstanceManager');
-const OPENTOFU_CODE_DIR = require('../../config/paths').OPENTOFU_CODE_DIR;
+const instanceManager = require('./InstanceManager');
+const { OPENTOFU_CODE_DIR } = require('../../config/paths');
+const { DefaultValues, isNetworkService } = require('../../config/constants');
+const PathHelper = require('../../utils/pathHelper');
 
 class PlanLoopManager {
   constructor() {
@@ -12,12 +18,17 @@ class PlanLoopManager {
   }
 
   /**
-   * Démarre la boucle plan continue
+   * Starts a continuous plan loop for a service
+   * @param {string} clientId - Client identifier
+   * @param {string} serviceId - Service identifier
+   * @param {string} dataDir - Working directory path
+   * @param {number} intervalMs - Loop interval in milliseconds
+   * @returns {void}
    */
-  start(clientId, serviceId, dataDir, intervalMs = 10000) {
+  start(clientId, serviceId, dataDir, intervalMs = DefaultValues.PLAN_INTERVAL_MS) {
     const key = `${clientId}/${serviceId}`;
-    
-    // Arrêter la boucle existante si elle existe
+
+    // Stop existing loop if it exists
     if (this.planLoops.has(key)) {
       this.stop(clientId, serviceId);
     }
@@ -25,81 +36,49 @@ class PlanLoopManager {
     const runner = instanceManager.getInstance(clientId, serviceId, dataDir, OPENTOFU_CODE_DIR);
 
     const intervalId = setInterval(async () => {
-      console.log(`[TOFU] Boucle plan tick pour ${key}`);
-      
       try {
-        // Vérifier le réseau seulement pour les services (pas pour les réseaux)
-        if (!this._isNetworkService(serviceId)) {
-          const instanceRaw = await s3.getFile(
-            process.env.S3_BUCKET,
-            `clients/${clientId}/${serviceId}/terraform.tfvars.json`
-          );
-          const instanceJson = JSON.parse(instanceRaw);
-          const instanceConfig = new InstanceConfig(instanceJson.instance || instanceJson);
-          await NetworkService.checkIsReady(clientId, instanceConfig, process.env.S3_BUCKET);
+        // Check network readiness for non-network services
+        if (!isNetworkService(serviceId)) {
+          await this._checkNetworkReadiness(clientId, serviceId);
         }
 
-        // Exécuter le plan et créer le status
+        // Execute plan and create status
         const planOutput = await runner.runPlan();
-        
-        // Récupérer la dernière action depuis le status existant ou défaut à 'plan'
-        let lastAction = 'plan';
-        try {
-          const existingInfo = await s3.getInfoJson(process.env.S3_BUCKET, clientId, serviceId);
-          if (existingInfo && existingInfo.lastAction) {
-            lastAction = existingInfo.lastAction;
-          }
-        } catch (err) {
-          // Pas grave si on ne peut pas récupérer l'info existante
-        }
-
-        // Créer le status depuis l'output du plan
+        const lastAction = await this._getLastAction(clientId, serviceId);
         const status = OpenTofuStatus.fromPlanOutput(key, planOutput, lastAction);
-        
-        // Envoyer aux clients et sauvegarder
-        sendToClients(clientId, serviceId, JSON.stringify(status.toJSON()));
-        await s3.updateInfoJsonStatus(process.env.S3_BUCKET, clientId, serviceId, status.toJSON());
-        
-      } catch (err) {
-        // En cas d'erreur, récupérer la dernière action connue
-        let lastAction = 'plan';
-        try {
-          const existingInfo = await s3.getInfoJson(process.env.S3_BUCKET, clientId, serviceId);
-          if (existingInfo && existingInfo.lastAction) {
-            lastAction = existingInfo.lastAction;
-          }
-        } catch (infoErr) {
-          // Pas grave
-        }
 
-        const errorStatus = OpenTofuStatus.fromError(key, '', err, lastAction);
-        
-        await s3.updateInfoJsonStatus(process.env.S3_BUCKET, clientId, serviceId, errorStatus.toJSON());
-        sendToClients(clientId, serviceId, JSON.stringify(errorStatus.toJSON()));
+        // Send to clients and save
+        await this._updateAndNotify(clientId, serviceId, status);
+
+      } catch (err) {
+        await this._handlePlanError(clientId, serviceId, key, err);
       }
     }, intervalMs);
 
     this.planLoops.set(key, intervalId);
-    console.log(`[TOFU] plan loop started for ${key}`);
   }
 
   /**
-   * Arrête la boucle plan
+   * Stops the plan loop for a service
+   * @param {string} clientId - Client identifier
+   * @param {string} serviceId - Service identifier
+   * @returns {boolean} True if loop was stopped, false if not found
    */
   stop(clientId, serviceId) {
     const key = `${clientId}/${serviceId}`;
     const intervalId = this.planLoops.get(key);
-    
+
     if (!intervalId) return false;
 
     clearInterval(intervalId);
     this.planLoops.delete(key);
-    console.log(`[TOFU] plan loop stopped for ${key}`);
     return true;
   }
 
   /**
-   * Arrête toutes les boucles pour un client
+   * Stops all plan loops for a client
+   * @param {string} clientId - Client identifier
+   * @returns {void}
    */
   stopAllForClient(clientId) {
     for (const key of this.planLoops.keys()) {
@@ -111,17 +90,57 @@ class PlanLoopManager {
   }
 
   /**
-   * Vérifie si le service est un service réseau
-   */
-  _isNetworkService(serviceId) {
-    return serviceId.startsWith('network/');
-  }
-
-  /**
-   * Obtient toutes les boucles actives
+   * Gets all active plan loop keys
+   * @returns {string[]} Array of active loop keys
    */
   getActiveLoops() {
     return Array.from(this.planLoops.keys());
+  }
+
+  /**
+   * Checks if network is ready for non-network services
+   * @private
+   */
+  async _checkNetworkReadiness(clientId, serviceId) {
+    const configKey = PathHelper.getServiceConfigKey(clientId, serviceId);
+    const instanceRaw = await s3Service.getFile(process.env.S3_BUCKET, configKey);
+    const instanceJson = JSON.parse(instanceRaw);
+    const instanceConfig = new InstanceConfig(instanceJson.instance || instanceJson);
+    await NetworkService.checkIsReady(clientId, instanceConfig, process.env.S3_BUCKET);
+  }
+
+  /**
+   * Gets the last action from service info
+   * @private
+   */
+  async _getLastAction(clientId, serviceId) {
+    try {
+      const existingInfo = await s3Service.getServiceInfo(process.env.S3_BUCKET, clientId, serviceId);
+      return existingInfo?.lastAction || 'plan';
+    } catch (err) {
+      return 'plan';
+    }
+  }
+
+  /**
+   * Updates service status and notifies clients
+   * @private
+   */
+  async _updateAndNotify(clientId, serviceId, status) {
+    sendToClients(clientId, serviceId, JSON.stringify(status.toJSON()));
+    await s3Service.updateServiceStatus(process.env.S3_BUCKET, clientId, serviceId, status.toJSON());
+  }
+
+  /**
+   * Handles plan execution errors
+   * @private
+   */
+  async _handlePlanError(clientId, serviceId, key, err) {
+    const lastAction = await this._getLastAction(clientId, serviceId);
+    const errorStatus = OpenTofuStatus.fromError(key, '', err, lastAction);
+
+    await s3Service.updateServiceStatus(process.env.S3_BUCKET, clientId, serviceId, errorStatus.toJSON());
+    sendToClients(clientId, serviceId, JSON.stringify(errorStatus.toJSON()));
   }
 }
 

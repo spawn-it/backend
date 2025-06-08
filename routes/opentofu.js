@@ -1,67 +1,87 @@
+/**
+ * API Routes for OpenTofu service management
+ * Handles all HTTP endpoints for client and service operations
+ */
 const express = require('express');
 const router = express.Router();
-const deployment = require('../services/OpentofuService');
-const { registerClient, removeClient } = require('../sse/clients');
 const { v4: uuidv4 } = require('uuid');
+
+// Services
+const tofuService = require('../services/OpentofuService');
+const { registerClient, removeClient } = require('../sse/clients');
+
+// Config and Utils
+const { Action, DefaultValues } = require('../config/constants');
+const PathHelper = require('../utils/pathHelper');
+
+// Environment variables
 const bucketName = process.env.S3_BUCKET;
 
-
-// Liste les services d'un client
+/**
+ * Lists all services for a specific client
+ * GET /clients/:clientId/services
+ */
 router.get('/clients/:clientId/services', async (req, res) => {
   const { clientId } = req.params;
   try {
-    const services = await deployment.listServices(bucketName, clientId);
+    const services = await tofuService.listServices(bucketName, clientId);
     res.json({ clientId, services });
   } catch (err) {
-    console.error(`Erreur listage services pour ${clientId} :`, err);
-    res.status(500).json({ error: 'Impossible de lister les services' });
+    console.error(`Error listing services for ${clientId}:`, err);
+    res.status(500).json({ error: 'Unable to list services' });
   }
 });
 
+/**
+ * Completely deletes a service (destroy + file cleanup)
+ * DELETE /clients/:clientId/:serviceId
+ */
 router.delete('/clients/:clientId/:serviceId', async (req, res) => {
   const { clientId, serviceId } = req.params;
-  console.log(`[DEBUG] Route delete service complet: ${clientId}/${serviceId}`);
 
   try {
-    deployment.stopPlan(clientId, serviceId);
+    // Stop any running plan loops
+    tofuService.stopPlan(clientId, serviceId);
+
+    // Execute destroy action
     try {
       const fakeRes = {
-        json: () => {}, 
+        json: () => {},
         headersSent: false,
         status: () => ({ json: () => {} })
       };
-      
-      console.log(`[DELETE] Début du destroy pour ${clientId}/${serviceId}`);
-      await deployment.executeAction('destroy', clientId, serviceId, bucketName, fakeRes);
-      
-      // Attendre que le destroy se termine
+
+      await tofuService.executeAction(Action.DESTROY, clientId, serviceId, bucketName, fakeRes);
+
+      // Wait for destroy to complete
       await new Promise(resolve => setTimeout(resolve, 5000));
-      console.log(`[DELETE] Destroy terminé pour ${clientId}/${serviceId}`);
-      
+
     } catch (destroyErr) {
-      console.warn(`[DELETE] Erreur lors du destroy de ${clientId}/${serviceId}:`, destroyErr.message);
-      // Continuer même si le destroy échoue (infrastructure peut déjà être détruite)
+      console.warn(`Destroy failed for ${clientId}/${serviceId}:`, destroyErr.message);
+      // Continue even if destroy fails (infrastructure might already be destroyed)
     }
 
-    console.log(`[DELETE] Suppression des fichiers S3 pour ${clientId}/${serviceId}`);
-    const servicePrefix = `clients/${clientId}/${serviceId}/`;
-    await deployment.deleteServiceFiles(bucketName, servicePrefix);
+    // Delete S3 files
+    const servicePrefix = PathHelper.getServicePrefix(clientId, serviceId);
+    await tofuService.deleteServiceFiles(bucketName, servicePrefix);
 
-    console.log(`[DELETE] Service ${clientId}/${serviceId} supprimé complètement`);
     res.json({
       status: 'deleted',
-      message: `Service ${serviceId} supprimé complètement`
+      message: `Service ${serviceId} completely deleted`
     });
 
   } catch (err) {
-    console.error(`Erreur suppression complète de ${clientId}/${serviceId}:`, err);
+    console.error(`Error deleting service ${clientId}/${serviceId}:`, err);
     if (!res.headersSent) {
-      res.status(500).json({ error: 'Erreur lors de la suppression du service' });
+      res.status(500).json({ error: 'Error deleting service' });
     }
   }
 });
 
-// SSE pour la sortie en direct de plan
+/**
+ * SSE endpoint for real-time plan output streaming
+ * GET /clients/:clientId/:serviceId/plan/stream
+ */
 router.get('/clients/:clientId/:serviceId/plan/stream', (req, res) => {
   const { clientId, serviceId } = req.params;
 
@@ -75,233 +95,285 @@ router.get('/clients/:clientId/:serviceId/plan/stream', (req, res) => {
   req.on('close', () => removeClient(clientId, serviceId, res));
 });
 
-// Vérifie si la config réseau existe (avec provider dynamique)
+/**
+ * Checks if network configuration exists for a provider
+ * GET /clients/:clientId/network/config?provider=<provider>
+ */
 router.get('/clients/:clientId/network/config', async (req, res) => {
   const { clientId } = req.params;
   const { provider } = req.query;
 
   if (!provider) {
-    return res.status(400).json({ error: 'Provider manquant dans la requête' });
+    return res.status(400).json({ error: 'Provider missing in request' });
   }
 
-  const key = `clients/${clientId}/network/${provider}/terraform.tfvars.json`;
+  const key = PathHelper.getNetworkConfigKey(clientId, provider);
 
   try {
-    await deployment.checkNetworkConfigExists(bucketName, key);
+    await tofuService.checkNetworkConfigExists(bucketName, key);
     res.json({ exists: true, key });
   } catch (err) {
     if (err.code === 'NoSuchKey') {
       res.status(404).json({ exists: false, key });
     } else {
-      console.error(`[TOFU] Erreur vérification config réseau ${clientId}:`, err);
-      res.status(500).json({ error: 'Erreur lors de la vérification de la configuration réseau' });
+      console.error(`Error checking network config for ${clientId}:`, err);
+      res.status(500).json({ error: 'Error checking network configuration' });
     }
   }
 });
 
-// Upload de configuration réseau Terraform
+/**
+ * Uploads network configuration for Terraform
+ * POST /clients/:clientId/network/config
+ */
 router.post('/clients/:clientId/network/config', async (req, res) => {
   const { clientId } = req.params;
   const config = req.body;
-  console.log(`[DEBUG ROUTE CONFIG] Received for ${clientId}/${serviceId}:`, JSON.stringify(configFromFrontend, null, 2));
 
-  // Validation améliorée avec logs
-  if (!config) {
-    console.log('[TOFU] Erreur: Aucune configuration fournie');
-    return res.status(400).json({ 
-      error: 'Aucune configuration fournie',
-      received: config 
-    });
-  }
-
-  if (!config.provider) {
-    console.log('[TOFU] Erreur: Provider manquant, config reçue:', config);
-    return res.status(400).json({ 
-      error: 'Provider manquant dans la configuration',
-      received: config 
-    });
-  }
-
-  if (!config.network_name) {
-    console.log('[TOFU] Erreur: network_name manquant, config reçue:', config);
-    return res.status(400).json({ 
-      error: 'network_name manquant dans la configuration',
-      received: config 
-    });
+  // Validation
+  const validationError = validateNetworkConfig(config);
+  if (validationError) {
+    return res.status(400).json(validationError);
   }
 
   try {
-    const key = `clients/${clientId}/network/${config.provider}/terraform.tfvars.json`;
-    
+    const key = PathHelper.getNetworkConfigKey(clientId, config.provider);
 
     const networkConfig = {
       instance: {
         provider: config.provider,
         network_name: config.network_name,
-        region: config.region || 'us-east-1',
-        environment: config.environment || 'dev'
+        region: config.region || DefaultValues.REGION,
+        environment: config.environment || DefaultValues.ENVIRONMENT
       }
     };
 
-    console.log(`[TOFU] Création du fichier S3: ${key}`);
-    console.log('[TOFU] Contenu final:', JSON.stringify(networkConfig, null, 2));
+    await tofuService.createFile(bucketName, key, JSON.stringify(networkConfig, null, 2));
 
-    await deployment.createFile(bucketName, key, JSON.stringify(networkConfig, null, 2));
-    
-    console.log(`[TOFU] Config réseau créée avec succès: ${key}`);
-    res.json({ 
-      status: 'uploaded', 
+    res.json({
+      status: 'uploaded',
       key,
-      config: networkConfig 
+      config: networkConfig
     });
   } catch (err) {
-    console.error('[TOFU] Erreur upload config réseau:', err);
-    res.status(500).json({ error: "Échec de l'upload de la configuration réseau", details: err.message });
+    console.error('Error uploading network config:', err);
+    res.status(500).json({
+      error: "Failed to upload network configuration",
+      details: err.message
+    });
   }
 });
 
-// Vérifie si le réseau est compliant
+/**
+ * Checks network compliance status
+ * GET /clients/:clientId/network/status?provider=<provider>
+ */
 router.get('/clients/:clientId/network/status', async (req, res) => {
   const { clientId } = req.params;
   const provider = req.query.provider || 'local';
-  const key = `clients/${clientId}/network/${provider}/terraform.tfvars.json`;
+  const key = PathHelper.getNetworkConfigKey(clientId, provider);
 
   try {
-    const status = await deployment.checkNetworkStatus(clientId, bucketName, key);
+    const status = await tofuService.checkNetworkStatus(clientId, bucketName, key);
     res.json(status);
   } catch (err) {
-    console.error(`[TOFU] Erreur statut réseau ${clientId}:`, err);
-    res.status(500).json({ error: 'Impossible de vérifier le statut réseau' });
+    console.error(`Error checking network status for ${clientId}:`, err);
+    res.status(500).json({ error: 'Unable to check network status' });
   }
 });
 
-// Appliquer ou détruire l'infrastructure réseau - ROUTE SPÉCIFIQUE AVANT LES GÉNÉRIQUES
+/**
+ * Applies or destroys network infrastructure
+ * POST /clients/:clientId/network/:action
+ */
 router.post('/clients/:clientId/network/:action', async (req, res) => {
   const { clientId, action } = req.params;
   const { provider } = req.body;
-  const validActions = ['apply', 'destroy'];
 
-  console.log(`[DEBUG] Route réseau action: ${clientId}/network/${action}`);
-
-  if (!validActions.includes(action)) {
-    return res.status(400).json({ error: 'Action invalide' });
+  if (!isValidAction(action)) {
+    return res.status(400).json({ error: 'Invalid action' });
   }
 
   if (!provider) {
-    return res.status(400).json({ error: "Provider manquant pour l'action réseau" });
+    return res.status(400).json({ error: "Provider missing for network action" });
   }
 
-  const servicePath = `network/${provider}`;
+  const servicePath = PathHelper.getNetworkServiceId(provider);
   const sourcePath = `./opentofu/networks/${provider}`;
 
   try {
-    await deployment.executeAction(action, clientId, servicePath, bucketName, res, sourcePath);
+    await tofuService.executeAction(action, clientId, servicePath, bucketName, res, sourcePath);
   } catch (err) {
-    console.error(`Erreur exécution ${action} pour ${clientId}/${servicePath} :`, err);
+    console.error(`Error executing ${action} for ${clientId}/${servicePath}:`, err);
     if (!res.headersSent) {
-      res.status(500).json({ error: `Erreur lors de l'exécution de l'action ${action}` });
+      res.status(500).json({ error: `Error executing action ${action}` });
     }
   }
 });
 
-// Démarrer une boucle de plan - ROUTE SPÉCIFIQUE
+/**
+ * Starts a plan loop for a service
+ * POST /clients/:clientId/:serviceId/plan
+ */
 router.post('/clients/:clientId/:serviceId/plan', async (req, res) => {
   const { clientId, serviceId } = req.params;
-  console.log(`[DEBUG] Route plan: ${clientId}/${serviceId}/plan`);
-  
+
   try {
-    await deployment.executePlan(clientId, serviceId, bucketName);
+    await tofuService.executePlan(clientId, serviceId, bucketName);
     res.json({ status: 'plan loop started' });
   } catch (err) {
-    console.error(`Erreur démarrage plan pour ${clientId}/${serviceId} :`, err);
-    res.status(500).json({ error: 'Impossible de démarrer le plan' });
+    console.error(`Error starting plan for ${clientId}/${serviceId}:`, err);
+    res.status(500).json({ error: 'Unable to start plan' });
   }
 });
 
-// Upload de configuration terraform pour services - ROUTE SPÉCIFIQUE
+/**
+ * Uploads service configuration
+ * POST /clients/:clientId/:serviceType/config
+ */
 router.post('/clients/:clientId/:serviceType/config', async (req, res) => {
   const { clientId, serviceType } = req.params;
   const serviceId = uuidv4();
-
   const config = req.body;
-  
+
   console.log(`[DEBUG] Route service config: ${clientId}/${serviceId}/config`);
-  
+  console.log(`[DEBUG] Service Type: ${serviceType}`);
+  console.log(`[DEBUG] Config reçue:`, config);
+
+  // Add default network name
   config['network_name'] = `network-${clientId}`;
 
   try {
-
-    const serviceInfomation = {
-      serviceName: config.container_name,
-      serviceType : serviceType,
+    // Create service info (AVANT de modifier container_name)
+    const serviceInformation = {
+      serviceName: config.container_name, // Garde le nom original de l'utilisateur
+      serviceType: serviceType,
       autoApply: false,
       status: {},
-    }
+    };
 
+    // Maintenant on écrase container_name pour terraform
     config['container_name'] = uuidv4();
 
-    const serviceKey = `clients/${clientId}/${serviceId}/info.json`;
-    await deployment.createFile(bucketName, serviceKey, JSON.stringify(serviceInfomation, null, 2));
+    console.log(`[DEBUG] Service Information:`, serviceInformation);
+    console.log(`[DEBUG] Config après modification:`, config);
 
-    const key = `clients/${clientId}/${serviceId}/terraform.tfvars.json`;
-    
-    const serviceConfig = {
-      instance: config
-    };
-    await deployment.createFile(bucketName, key, JSON.stringify(serviceConfig, null, 2));
-    
+    const serviceInfoKey = PathHelper.getServiceInfoKey(clientId, serviceId);
+    console.log(`[DEBUG] Création du fichier info: ${serviceInfoKey}`);
+
+    await tofuService.createFile(bucketName, serviceInfoKey, JSON.stringify(serviceInformation, null, 2));
+    console.log(`[DEBUG] Fichier info créé avec succès`);
+
+    // Create service config
+    const configKey = PathHelper.getServiceConfigKey(clientId, serviceId);
+    const serviceConfig = { instance: config };
+
+    console.log(`[DEBUG] Création du fichier config: ${configKey}`);
+    console.log(`[DEBUG] Contenu config:`, JSON.stringify(serviceConfig, null, 2));
+
+    await tofuService.createFile(bucketName, configKey, JSON.stringify(serviceConfig, null, 2));
+    console.log(`[DEBUG] Fichier config créé avec succès`);
+
+    console.log(`[DEBUG] Upload terminé avec succès pour ${serviceId}`);
     res.json({ status: 'uploaded', serviceId });
   } catch (err) {
-    console.error('Erreur upload config :', err);
-    res.status(500).json({ error: "Échec de l'upload de la configuration" });
+    console.error('Error uploading config:', err);
+    console.error('Stack trace:', err.stack);
+    res.status(500).json({ error: "Failed to upload configuration", details: err.message });
   }
 });
 
-// Arrêter une boucle de plan - ROUTE SPÉCIFIQUE
+/**
+ * Stops a plan loop for a service
+ * DELETE /clients/:clientId/:serviceId/plan
+ */
 router.delete('/clients/:clientId/:serviceId/plan', async (req, res) => {
   const { clientId, serviceId } = req.params;
-  console.log(`[DEBUG] Route delete plan: ${clientId}/${serviceId}/plan`);
-  
+
   try {
-    deployment.stopPlan(clientId, serviceId);
+    tofuService.stopPlan(clientId, serviceId);
     res.json({ status: 'plan loop stopped' });
   } catch (err) {
-    console.error(`Erreur arrêt plan pour ${clientId}/${serviceId} :`, err);
-    res.status(500).json({ error: "Impossible d'arrêter le plan" });
+    console.error(`Error stopping plan for ${clientId}/${serviceId}:`, err);
+    res.status(500).json({ error: "Unable to stop plan" });
   }
 });
 
-// Appliquer ou détruire un service
+/**
+ * Applies or destroys a service
+ * POST /clients/:clientId/:serviceId/:action
+ */
 router.post('/clients/:clientId/:serviceId/:action', async (req, res) => {
   const { clientId, serviceId, action } = req.params;
-  const validActions = ['apply', 'destroy'];
 
-  console.log(`[DEBUG] Route générique service: ${clientId}/${serviceId}/${action}`);
-
-  if (!validActions.includes(action)) {
-    return res.status(400).json({ error: 'Action invalide' });
+  if (!isValidAction(action)) {
+    return res.status(400).json({ error: 'Invalid action' });
   }
 
   try {
-    await deployment.executeAction(action, clientId, serviceId, bucketName, res);
+    await tofuService.executeAction(action, clientId, serviceId, bucketName, res);
   } catch (err) {
-    console.error(`Erreur exécution ${action} pour ${clientId}/${serviceId} :`, err);
+    console.error(`Error executing ${action} for ${clientId}/${serviceId}:`, err);
     if (!res.headersSent) {
-      res.status(500).json({ error: `Erreur lors de l'exécution de l'action ${action}` });
+      res.status(500).json({ error: `Error executing action ${action}` });
     }
   }
 });
 
-// Annuler un job en cours
+/**
+ * Cancels a running job
+ * DELETE /jobs/:jobId
+ */
 router.delete('/jobs/:jobId', async (req, res) => {
   const { jobId } = req.params;
   try {
-    deployment.cancelJob(jobId);
+    tofuService.cancelJob(jobId);
     res.json({ status: 'job cancelled' });
   } catch (err) {
-    console.error(`Erreur annulation job ${jobId} :`, err);
-    res.status(500).json({ error: "Impossible d'annuler le job" });
+    console.error(`Error cancelling job ${jobId}:`, err);
+    res.status(500).json({ error: "Unable to cancel job" });
   }
 });
+
+// Helper functions
+
+/**
+ * Validates network configuration request body
+ * @param {Object} config - Network configuration object
+ * @returns {Object|null} Validation error object or null if valid
+ */
+function validateNetworkConfig(config) {
+  if (!config) {
+    return {
+      error: 'No configuration provided',
+      received: config
+    };
+  }
+
+  if (!config.provider) {
+    return {
+      error: 'Provider missing in configuration',
+      received: config
+    };
+  }
+
+  if (!config.network_name) {
+    return {
+      error: 'network_name missing in configuration',
+      received: config
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Checks if action is valid
+ * @param {string} action - Action to validate
+ * @returns {boolean} True if action is valid
+ */
+function isValidAction(action) {
+  return Object.values(Action).includes(action);
+}
 
 module.exports = router;

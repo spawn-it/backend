@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const catalog = require('../services/catalog');
+const catalog = require('../services/CatalogService');
 
 // GET /catalog - liste de tous les services
 router.get('/catalog', (req, res) => {

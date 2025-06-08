@@ -1,23 +1,38 @@
-const { getFile } = require('./s3');
-const TEMPLATE_BUCKET = 'spawn-it-bucket';
-const TEMPLATE_PREFIX = 'templates/';
+/**
+ * Template Service for managing OpenTofu/Terraform templates
+ * Handles template retrieval from S3 storage
+ */
+const s3Service = require('./s3/S3Service');
 
-async function getTemplateByName(name) {
-    const key = `${TEMPLATE_PREFIX}${name}`;
-    try {
-        const content = await getFile(TEMPLATE_BUCKET, key);
-        console.log(`[DEBUG TEMPLATE SVC] Raw content for ${key}:`, content);
-        const parsedContent = JSON.parse(content);
-        console.log(`[DEBUG TEMPLATE SVC] Parsed content for ${key}:`, JSON.stringify(parsedContent, null, 2));
-        return parsedContent;
-    } catch (err) {
-        if (err.code === 'NoSuchKey') {
+class TemplateService {
+    constructor() {
+        this.templateBucket = process.env.S3_BUCKET || 'spawn-it-bucket';
+        this.templatePrefix = 'templates/';
+    }
+
+    /**
+     * Retrieves a template by name from S3 storage
+     * @param {string} name - Template name (filename)
+     * @returns {Promise<Object|null>} Parsed template object or null if not found
+     * @throws {Error} If template exists but cannot be parsed
+     */
+    async getTemplateByName(name) {
+        if (!name || typeof name !== 'string') {
             return null;
         }
-        throw err;
+
+        const key = `${this.templatePrefix}${name}`;
+
+        try {
+            const content = await s3Service.getFile(this.templateBucket, key);
+            return JSON.parse(content);
+        } catch (err) {
+            if (err.code === 'NoSuchKey') {
+                return null;
+            }
+            throw err;
+        }
     }
 }
 
-module.exports = {
-    getTemplateByName,
-};
+module.exports = new TemplateService();

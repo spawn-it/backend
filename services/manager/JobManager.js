@@ -1,3 +1,7 @@
+/**
+ * Job Manager for OpenTofu process management
+ * Handles creation, tracking, and cancellation of OpenTofu jobs
+ */
 const { v4: uuidv4 } = require('uuid');
 
 class JobManager {
@@ -6,7 +10,8 @@ class JobManager {
   }
 
   /**
-   * Créer un nouveau job avec un UUID
+   * Creates a new job with a unique UUID
+   * @returns {string} Generated job ID
    */
   createJob() {
     const jobId = uuidv4();
@@ -14,41 +19,53 @@ class JobManager {
   }
 
   /**
-   * Ajouter un processus à un job
+   * Associates a process with a job ID
+   * @param {string} jobId - Job identifier
+   * @param {ChildProcess} process - Process to associate with the job
+   * @returns {void}
    */
   setJob(jobId, process) {
     this.jobs.set(jobId, process);
   }
 
   /**
-   * Récupérer un job
+   * Retrieves a job process by ID
+   * @param {string} jobId - Job identifier
+   * @returns {ChildProcess|undefined} Process associated with the job
    */
   getJob(jobId) {
     return this.jobs.get(jobId);
   }
 
   /**
-   * Supprimer un job
+   * Removes a job from tracking
+   * @param {string} jobId - Job identifier
+   * @returns {boolean} True if job was removed
    */
   removeJob(jobId) {
-    this.jobs.delete(jobId);
+    return this.jobs.delete(jobId);
   }
 
   /**
-   * Annuler un job terraform
+   * Cancels a running OpenTofu job
+   * @param {string} jobId - Job identifier to cancel
+   * @returns {boolean} True if job was cancelled, false if not found
    */
   cancelJob(jobId) {
     const proc = this.jobs.get(jobId);
-    if (!proc) return false;
-    
+    if (!proc) {
+      return false;
+    }
+
     proc.kill('SIGTERM');
     this.jobs.delete(jobId);
-    console.log(`[TOFU] job cancelled ${jobId}`);
+    console.log(`[JobManager] Job cancelled: ${jobId}`);
     return true;
   }
 
   /**
-   * Obtenir tous les jobs actifs
+   * Gets all active job IDs
+   * @returns {string[]} Array of active job identifiers
    */
   getActiveJobs() {
     return Array.from(this.jobs.keys());

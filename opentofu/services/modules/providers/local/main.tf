@@ -10,7 +10,8 @@ terraform {
 # Pull the Docker image specified by the 'image' variable
 resource "docker_image" "instance" {
   name         = var.image
-  keep_locally = false # Do not retain the image locally after container removal
+  # Do retain the image locally after pulling it can be used for other containers
+  keep_locally = true
 }
 
 # Look up an existing Docker network

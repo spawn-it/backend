@@ -1,4 +1,3 @@
-const s3 = require('../services/s3');
 const OpenTofuStatus = require('./OpenTofuStatus');
 const InstanceConfig = require('./InstanceConfig');
 

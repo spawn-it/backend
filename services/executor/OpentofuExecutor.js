@@ -1,60 +1,72 @@
+/**
+ * OpenTofu Executor - Handles OpenTofu command execution and management
+ * Manages action execution, network validation, and plan loops
+ */
 const OpenTofuStatus = require('../../models/OpenTofuStatus');
 const InstanceConfig = require('../../models/InstanceConfig');
 const { sendToClients } = require('../../sse/clients');
-const s3Service = require('../s3');
-const WorkingDirectoryService = require('../WorkingDirectoryService');
+const s3Service = require('../s3/S3Service');
+const workingDirectoryService = require('../WorkingDirectoryService');
 const NetworkService = require('../NetworkService');
-const instanceManager = require('../manager/InstanceManager');
-const jobManager = require('../manager/JobManager');
-const planLoopManager = require('../manager/PlanLoopManager');
+const instanceManager = require('../managers/InstanceManager');
+const jobManager = require('../managers/JobManager');
+const planLoopManager = require('../managers/PlanLoopManager');
+const { isNetworkService } = require('../../config/constants');
+const PathHelper = require('../../utils/pathHelper');
 
-const OPENTOFU_CODE_DIR = require('../../config/paths').OPENTOFU_CODE_DIR;
+const { OPENTOFU_CODE_DIR } = require('../../config/paths');
 
 class OpentofuExecutor {
   /**
-   * Exécute une action opentofu (plan, apply, destroy)
-   * Vérifie la préparation du réseau avant d'exécuter l'action sur un service autre que réseau
+   * Executes an OpenTofu action (plan, apply, destroy)
+   * Validates network readiness before executing actions on non-network services
+   * @param {string} action - Action to execute
+   * @param {string} clientId - Client identifier
+   * @param {string} serviceId - Service identifier
+   * @param {string} bucket - S3 bucket name
+   * @param {Object} res - Express response object
+   * @param {string} codeDir - OpenTofu code directory
+   * @returns {Promise<void>}
    */
   static async executeAction(action, clientId, serviceId, bucket, res, codeDir = OPENTOFU_CODE_DIR) {
-    const dataDir = await WorkingDirectoryService.prepare(clientId, serviceId, bucket);
-    
-    // Déterminer si c'est une action réseau
-    const isNetworkAction = serviceId.startsWith('network/');
-    
-    let instanceConfig = null;
-    
-    // Seulement lire la config d'instance si ce n'est pas une action réseau
-    if (!isNetworkAction) {
-      try {
-        const instanceRaw = await s3Service.getFile(bucket, `clients/${clientId}/${serviceId}/terraform.tfvars.json`);
-        const instanceJson = JSON.parse(instanceRaw);
-        instanceConfig = new InstanceConfig(instanceJson.instance || instanceJson);
-      } catch (err) {
-        console.error(`[TOFU] Error reading instance config for ${clientId}/${serviceId}:`, err);
-        if (!res.headersSent) {
-          return res.status(500).json({ error: `Configuration manquante pour ${serviceId}` });
-        }
-        return;
-      }
-    }
-
-    planLoopManager.stop(clientId, serviceId);
-    const runner = instanceManager.getInstance(clientId, serviceId, dataDir, codeDir);
-
     try {
+      const dataDir = await workingDirectoryService.prepare(clientId, serviceId, bucket);
+      const isNetwork = isNetworkService(serviceId);
+
+      let instanceConfig = null;
+
+      // Read instance config only for non-network services
+      if (!isNetwork) {
+        instanceConfig = await this._getInstanceConfig(clientId, serviceId, bucket);
+        if (!instanceConfig) {
+          if (!res.headersSent) {
+            return res.status(500).json({ error: `Missing configuration for ${serviceId}` });
+          }
+          return;
+        }
+      }
+
+      // Stop any running plan loops
+      planLoopManager.stop(clientId, serviceId);
+
+      const runner = instanceManager.getInstance(clientId, serviceId, dataDir, codeDir);
       const jobId = jobManager.createJob();
 
-      // Vérifier que le réseau est prêt seulement pour les services (pas pour les actions réseau)
-      if (!isNetworkAction && instanceConfig) {
+      // Validate network readiness for non-network services
+      if (!isNetwork && instanceConfig) {
         await NetworkService.checkIsReady(clientId, instanceConfig, bucket);
       }
 
+      // Send job ID to client
       res.json({ jobId });
+
+      // Execute the command
       const proc = await runner.spawnCommand(action);
       jobManager.setJob(jobId, proc);
 
       let output = '';
 
+      // Handle process output
       proc.stdout.on('data', chunk => {
         const text = chunk.toString();
         output += text;
@@ -67,65 +79,113 @@ class OpentofuExecutor {
         sendToClients(clientId, serviceId, text, 'error');
       });
 
+      // Handle process completion
       proc.on('close', async (code) => {
         jobManager.removeJob(jobId);
-        
-        let status;
-        if (code === 0) {
-          // Succès - créer depuis l'output avec l'action correspondante
-          if (action === 'plan') {
-            status = OpenTofuStatus.fromPlanOutput(`${clientId}/${serviceId}`, output, action);
-          } else {
-            // Pour apply, destroy, etc. - on assume que c'est appliqué
-            status = new OpenTofuStatus(`${clientId}/${serviceId}`, action, output, new Date(), null, true);
-          }
-        } else {
-          // Erreur
-          status = OpenTofuStatus.fromError(
-            `${clientId}/${serviceId}`, 
-            output, 
-            new Error(`${action} exited with code ${code}`),
-            action
-          );
-        }
 
-        // Mettre à jour le status dans S3
-        await s3Service.updateInfoJsonStatus(bucket, clientId, serviceId, status.toJSON());
-        
-        // Si c'est une action réelle (pas un plan), mettre à jour le lastAction au niveau du service
+        const status = this._createStatusFromResult(clientId, serviceId, action, output, code);
+
+        // Update status in S3
+        await s3Service.updateServiceStatus(bucket, clientId, serviceId, status.toJSON());
+
+        // Update last action for successful non-plan operations
         if (action !== 'plan' && code === 0) {
-          await s3Service.updateInfoJsonLastAction(bucket, clientId, serviceId, action);
+          await s3Service.updateServiceLastAction(bucket, clientId, serviceId, action);
         }
 
         sendToClients(clientId, serviceId, JSON.stringify(status.toJSON()), 'end');
+
+        // Restart plan loop
         planLoopManager.start(clientId, serviceId, dataDir);
       });
 
+      // Handle process errors
       proc.on('error', err => {
         jobManager.removeJob(jobId);
         const status = OpenTofuStatus.fromError(`${clientId}/${serviceId}`, output, err, action);
         sendToClients(clientId, serviceId, JSON.stringify(status.toJSON()), 'error');
 
-        if (!res.headersSent) res.status(500).json({ error: err.message });
+        if (!res.headersSent) {
+          res.status(500).json({ error: err.message });
+        }
       });
 
     } catch (err) {
-      console.error(`[TOFU] Error executing ${action} for ${clientId}/${serviceId}:`, err);
-      if (!res.headersSent) res.status(500).json({ error: err.message });
+      console.error(`[OpentofuExecutor] Error executing ${action} for ${clientId}/${serviceId}:`, err);
+      if (!res.headersSent) {
+        res.status(500).json({ error: err.message });
+      }
     }
   }
 
   /**
-   * Lance la boucle plan
+   * Starts a plan loop for continuous monitoring
+   * @param {string} clientId - Client identifier
+   * @param {string} serviceId - Service identifier
+   * @param {string} bucket - S3 bucket name
+   * @returns {Promise<Object>} Status object with directory information
    */
   static async executePlan(clientId, serviceId, bucket) {
-    const dataDir = await WorkingDirectoryService.prepare(clientId, serviceId, bucket);
+    const dataDir = await workingDirectoryService.prepare(clientId, serviceId, bucket);
     planLoopManager.start(clientId, serviceId, dataDir);
-    return { 
-      status: 'started', 
-      codeDir: OPENTOFU_CODE_DIR, 
-      dataDir 
+
+    return {
+      status: 'started',
+      codeDir: OPENTOFU_CODE_DIR,
+      dataDir
     };
+  }
+
+  /**
+   * Retrieves and parses instance configuration from S3
+   * @private
+   * @param {string} clientId - Client identifier
+   * @param {string} serviceId - Service identifier
+   * @param {string} bucket - S3 bucket name
+   * @returns {Promise<InstanceConfig|null>} Instance configuration or null if error
+   */
+  static async _getInstanceConfig(clientId, serviceId, bucket) {
+    try {
+      const configKey = PathHelper.getServiceConfigKey(clientId, serviceId);
+      const instanceRaw = await s3Service.getFile(bucket, configKey);
+      const instanceJson = JSON.parse(instanceRaw);
+      return new InstanceConfig(instanceJson.instance || instanceJson);
+    } catch (err) {
+      console.error(`[OpentofuExecutor] Error reading instance config for ${clientId}/${serviceId}:`, err);
+      return null;
+    }
+  }
+
+  /**
+   * Creates appropriate status object based on command result
+   * @private
+   * @param {string} clientId - Client identifier
+   * @param {string} serviceId - Service identifier
+   * @param {string} action - Action that was executed
+   * @param {string} output - Command output
+   * @param {number} code - Exit code
+   * @returns {OpenTofuStatus} Status object
+   */
+  static _createStatusFromResult(clientId, serviceId, action, output, code) {
+    const key = `${clientId}/${serviceId}`;
+
+    if (code === 0) {
+      // Success - create status based on action type
+      if (action === 'plan') {
+        return OpenTofuStatus.fromPlanOutput(key, output, action);
+      } else {
+        // For apply, destroy, etc. - assume it's applied
+        return new OpenTofuStatus(key, action, output, new Date(), null, true);
+      }
+    } else {
+      // Error - create error status
+      return OpenTofuStatus.fromError(
+          key,
+          output,
+          new Error(`${action} exited with code ${code}`),
+          action
+      );
+    }
   }
 }
 

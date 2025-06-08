@@ -1,16 +1,22 @@
-const s3 = require('./s3');
-const WorkingDirectoryService = require('./WorkingDirectoryService');
+/**
+ * Service for managing network infrastructure operations
+ * Handles network readiness checks and status monitoring
+ */
+const s3Service = require('./s3/S3Service');
+const workingDirectoryService = require('./WorkingDirectoryService');
 const instanceManager = require('./manager/InstanceManager');
 const OpenTofuStatus = require('../models/OpenTofuStatus');
-
-const NETWORK_CODE_DIR = require('../config/paths').NETWORK_CODE_DIR;
+const { NETWORK_CODE_DIR } = require('../config/paths');
+const PathHelper = require('../utils/pathHelper');
 
 class NetworkService {
   /**
-   * Vérifie que le réseau spécifique au provider est prêt (pas de changement planifié)
-   * @param {string} clientId
-   * @param {InstanceConfig} instanceConfig
-   * @param {string} bucket
+   * Checks if the network infrastructure is ready for a specific provider
+   * Validates that no changes are planned and infrastructure is applied
+   * @param {string} clientId - Client identifier
+   * @param {Object} instanceConfig - Instance configuration object
+   * @param {string} bucket - S3 bucket name
+   * @throws {Error} If network is not ready or configuration is missing
    */
   static async checkIsReady(clientId, instanceConfig, bucket) {
     if (!instanceConfig.provider || !instanceConfig.network_name) {
@@ -18,104 +24,99 @@ class NetworkService {
     }
 
     const provider = instanceConfig.provider;
-    const key = `clients/${clientId}/network/${provider}/terraform.tfvars.json`;
+    const key = PathHelper.getNetworkConfigKey(clientId, provider);
 
-    // Vérifier que la config réseau existe
+    // Verify network configuration exists
     try {
-      await s3.getFile(bucket, key);
+      await s3Service.getFile(bucket, key);
     } catch (err) {
       throw new Error(`Network configuration missing for client ${clientId} and provider ${provider}`);
     }
 
-    // Préparer répertoire réseau
-    const networkDataDir = await WorkingDirectoryService.prepare(clientId, `network/${provider}`, bucket);
-    const networkRunner = instanceManager.getInstance(clientId, `network/${provider}`, networkDataDir, NETWORK_CODE_DIR);
+    // Prepare network directory
+    const serviceId = PathHelper.getNetworkServiceId(provider);
+    const networkDataDir = await workingDirectoryService.prepare(clientId, serviceId, bucket);
+    const networkRunner = instanceManager.getInstance(clientId, serviceId, networkDataDir, NETWORK_CODE_DIR);
 
-    // Initialiser (si besoin)
+    // Initialize if needed
     await networkRunner.ensureInitialized();
 
-    // runPlan() retourne maintenant une string, pas un OpenTofuStatus
+    // Run plan and check status
     const planOutput = await networkRunner.runPlan();
-    
-    // Récupérer la dernière action depuis S3 si elle existe
-    let lastAction = 'plan';
-    try {
-      const existingInfo = await s3.getInfoJson(bucket, clientId, `network/${provider}`);
-      if (existingInfo && existingInfo.lastAction) {
-        lastAction = existingInfo.lastAction;
-      }
-    } catch (infoErr) {
-      // Pas grave si on ne peut pas récupérer l'info existante
-    }
-
-    // Créer le status depuis l'output du plan
-    const status = OpenTofuStatus.fromPlanOutput(`${clientId}/network/${provider}`, planOutput, lastAction);
+    const lastAction = await this._getLastAction(bucket, clientId, serviceId);
+    const status = OpenTofuStatus.fromPlanOutput(`${clientId}/${serviceId}`, planOutput, lastAction);
 
     if (!status.applied) {
-      throw new Error(`Network for client ${clientId} provider ${provider} is not ready. Plan output: ${planOutput.substring(0, 200)}...`);
+      throw new Error(`Network for client ${clientId} provider ${provider} is not ready. Plan shows changes needed.`);
     }
-
-    console.log(`[TOFU] Network for client ${clientId} provider ${provider} is ready.`);
   }
 
   /**
-   * Vérifie le statut du réseau avec gestion d'erreur améliorée
+   * Checks the current status of network infrastructure
+   * @param {string} clientId - Client identifier
+   * @param {string} bucket - S3 bucket name
+   * @param {string} key - S3 key for network configuration
+   * @returns {Promise<Object>} Network status object
    */
   static async checkStatus(clientId, bucket, key) {
     try {
-      // Vérifier que le fichier existe d'abord
-      await s3.getFile(bucket, key);
+      // Check if configuration file exists
+      await s3Service.getFile(bucket, key);
     } catch (err) {
       if (err.code === 'NoSuchKey') {
-        // Retourner un statut "non compliant" au lieu de lever une erreur
         return {
           compliant: false,
           applied: false,
           key: `${clientId}/network`,
           lastAction: 'unknown',
-          output: 'Configuration réseau manquante',
+          output: 'Network configuration missing',
           timestamp: new Date().toISOString(),
-          errorMessage: 'Configuration réseau manquante',
+          errorMessage: 'Network configuration missing',
           errorStack: null
         };
       }
       throw err;
     }
-  
-    // Extraire le provider du chemin
+
+    // Extract provider from path
     const pathParts = key.split('/');
     const provider = pathParts[pathParts.length - 2]; // network/[provider]/terraform.tfvars.json
-    const serviceId = `network/${provider}`;
-    
-    const dataDir = await WorkingDirectoryService.prepare(clientId, serviceId, bucket);
+    const serviceId = PathHelper.getNetworkServiceId(provider);
+
+    const dataDir = await workingDirectoryService.prepare(clientId, serviceId, bucket);
     const runner = instanceManager.getInstance(clientId, serviceId, dataDir, NETWORK_CODE_DIR);
-    
+
     try {
       await runner.ensureInitialized();
-      
-      // runPlan() retourne maintenant une string, pas un OpenTofuStatus
+
       const planOutput = await runner.runPlan();
-      
-      // Récupérer la dernière action depuis S3 si elle existe
-      let lastAction = 'plan';
-      try {
-        const existingInfo = await s3.getInfoJson(bucket, clientId, serviceId);
-        if (existingInfo && existingInfo.lastAction) {
-          lastAction = existingInfo.lastAction;
-        }
-      } catch (infoErr) {
-        // Pas grave si on ne peut pas récupérer l'info existante
-      }
-      
-      // Créer le status depuis l'output et retourner le JSON
+      const lastAction = await this._getLastAction(bucket, clientId, serviceId);
       const status = OpenTofuStatus.fromPlanOutput(`${clientId}/${serviceId}`, planOutput, lastAction);
+
       return status.toJSON();
-      
+
     } catch (err) {
-      console.error(`[TOFU] Error running plan for network ${clientId}/${provider}:`, err);
-      
+      console.error(`[NetworkService] Error running plan for ${clientId}/${provider}:`, err);
+
       const errorStatus = OpenTofuStatus.fromError(`${clientId}/${serviceId}`, '', err, 'plan');
       return errorStatus.toJSON();
+    }
+  }
+
+  /**
+   * Gets the last action performed on a service
+   * @private
+   * @param {string} bucket - S3 bucket name
+   * @param {string} clientId - Client identifier
+   * @param {string} serviceId - Service identifier
+   * @returns {Promise<string>} Last action or 'plan' as default
+   */
+  static async _getLastAction(bucket, clientId, serviceId) {
+    try {
+      const existingInfo = await s3Service.getServiceInfo(bucket, clientId, serviceId);
+      return existingInfo?.lastAction || 'plan';
+    } catch (err) {
+      return 'plan';
     }
   }
 }
