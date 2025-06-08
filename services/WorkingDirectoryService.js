@@ -6,11 +6,11 @@ const BASE_WORKING_DIR = path.resolve(process.env.TOFU_WORKING_DIR || './workdir
 
 class WorkingDirectoryService {
   /**
-   * Prépare le répertoire de travail local en téléchargeant les fichiers depuis S3
-   * @param {string} clientId
-   * @param {string} serviceId (peut être 'network/local', etc.)
-   * @param {string} bucket
-   * @returns {Promise<string>} chemin du répertoire local
+   * Prepare the working directory for a client and service.
+   * @param {string} clientId the client identifier
+   * @param {string} serviceId the service identifier
+   * @param {string} bucket the S3 bucket name
+   * @returns {Promise<string>} the path to the prepared working directory
    */
   static async prepare(clientId, serviceId, bucket) {
     const safeServiceId = serviceId.replace(/\//g, path.sep);
