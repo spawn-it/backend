@@ -1,4 +1,3 @@
-// services/s3/S3Service.js (fixed)
 /**
  * S3 Service for handling all AWS S3 operations
  * Provides abstraction layer for S3 interactions with object name validation
@@ -348,6 +347,21 @@ class S3Service {
         }
 
         info.lastAction = action;
+        await this.createFile(bucket, key, JSON.stringify(info, null, 2));
+    }
+
+    async updateServiceLastApplyOutput(bucket, clientId, serviceId, output) {
+        const key = PathHelper.getServiceInfoKey(clientId, serviceId);
+
+        let info = {};
+        try {
+            const fileContent = await this.getFile(bucket, key);
+            info = JSON.parse(fileContent);
+        } catch (err) {
+            if (err.code !== 'NoSuchKey' && err.code !== 'InvalidObjectName') throw err;
+        }
+
+        info.applyOutput = output;
         await this.createFile(bucket, key, JSON.stringify(info, null, 2));
     }
 

@@ -141,6 +141,7 @@ class PlanLoopManager {
 
     await s3Service.updateServiceStatus(process.env.S3_BUCKET, clientId, serviceId, errorStatus.toJSON());
     sendToClients(clientId, serviceId, JSON.stringify(errorStatus.toJSON()));
+    this.stop(clientId, serviceId);
   }
 }
 

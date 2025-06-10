@@ -220,18 +220,11 @@ router.post('/clients/:clientId/:serviceType/config', async (req, res) => {
   const { clientId, serviceType } = req.params;
   const serviceId = uuidv4();
   const config = req.body;
-
-  console.log(`[DEBUG] Route service config: ${clientId}/${serviceId}/config`);
-  console.log(`[DEBUG] Service Type: ${serviceType}`);
-  console.log(`[DEBUG] Config reçue:`, config);
-
-  // Add default network name
   config['network_name'] = `network-${clientId}`;
 
   try {
-    // Create service info (AVANT de modifier container_name)
     const serviceInformation = {
-      serviceName: config.container_name, // Garde le nom original de l'utilisateur
+      serviceName: config.container_name,
       serviceType: serviceType,
       autoApply: false,
       status: {},
@@ -239,27 +232,11 @@ router.post('/clients/:clientId/:serviceType/config', async (req, res) => {
 
     // Maintenant on écrase container_name pour terraform
     config['container_name'] = uuidv4();
-
-    console.log(`[DEBUG] Service Information:`, serviceInformation);
-    console.log(`[DEBUG] Config après modification:`, config);
-
     const serviceInfoKey = PathHelper.getServiceInfoKey(clientId, serviceId);
-    console.log(`[DEBUG] Création du fichier info: ${serviceInfoKey}`);
-
     await tofuService.createFile(bucketName, serviceInfoKey, JSON.stringify(serviceInformation, null, 2));
-    console.log(`[DEBUG] Fichier info créé avec succès`);
-
-    // Create service config
     const configKey = PathHelper.getServiceConfigKey(clientId, serviceId);
     const serviceConfig = { instance: config };
-
-    console.log(`[DEBUG] Création du fichier config: ${configKey}`);
-    console.log(`[DEBUG] Contenu config:`, JSON.stringify(serviceConfig, null, 2));
-
     await tofuService.createFile(bucketName, configKey, JSON.stringify(serviceConfig, null, 2));
-    console.log(`[DEBUG] Fichier config créé avec succès`);
-
-    console.log(`[DEBUG] Upload terminé avec succès pour ${serviceId}`);
     res.json({ status: 'uploaded', serviceId });
   } catch (err) {
     console.error('Error uploading config:', err);

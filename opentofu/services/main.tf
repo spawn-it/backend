@@ -1,6 +1,3 @@
-terraform {
-  backend "s3" {}
-}
 
 // --- Provider LOCAL (Docker) ---
 module "provider_infra_local" {

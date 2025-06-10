@@ -75,7 +75,8 @@ class OpentofuExecutor {
           jobManager.removeJob(jobId);
 
           const status = this._createStatusFromResult(clientId, serviceId, action, output, code);
-
+          const tofuVarOutput = await runner.spawnOutput()
+          await s3Service.updateServiceLastApplyOutput(bucket, clientId, serviceId, tofuVarOutput);
           await s3Service.updateServiceStatus(bucket, clientId, serviceId, status.toJSON());
           if (action !== 'plan' && code === 0) {
             await s3Service.updateServiceLastAction(bucket, clientId, serviceId, action);

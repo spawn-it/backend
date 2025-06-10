@@ -41,6 +41,166 @@ class OpenTofuCommand {
   }
 
   /**
+   * Retrieves OpenTofu outputs and returns them as clean values
+   * @returns {Promise<Object>} Object containing output values (not the full Terraform structure)
+   */
+  async spawnOutput() {
+    const initialized = await this.ensureInitialized();
+    if (!initialized) {
+      throw new Error(`Unable to initialize OpenTofu for ${this.key}`);
+    }
+
+    return new Promise((resolve, reject) => {
+      const env = this._getEnvironmentVariables();
+      const args = ['output', '-json'];
+
+      console.log(`[OpenTofu] Retrieving outputs for ${this.key}`);
+
+      let output = '';
+      let errorOutput = '';
+
+      const proc = spawn(this.tofuBin, args, {
+        cwd: this.codeDir,
+        env,
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+
+      // Set timeout for the operation
+      const timeout = setTimeout(() => {
+        console.warn(`[OpenTofu] Output retrieval timeout for ${this.key}`);
+        proc.kill('SIGTERM');
+
+        setTimeout(() => {
+          if (!proc.killed) {
+            proc.kill('SIGKILL');
+          }
+        }, 5000);
+
+        reject(new Error('Output retrieval timed out'));
+      }, 30000); // 30 second timeout
+
+      proc.stdout.on('data', (chunk) => {
+        output += chunk.toString();
+      });
+
+      proc.stderr.on('data', (chunk) => {
+        errorOutput += chunk.toString();
+      });
+
+      proc.on('error', (err) => {
+        clearTimeout(timeout);
+        console.error(`[OpenTofu] Output command error for ${this.key}:`, err.message);
+        reject(new Error(`Output retrieval failed: ${err.message}`));
+      });
+
+      proc.on('close', (code) => {
+        clearTimeout(timeout);
+
+        if (code !== 0) {
+          // Handle common error cases
+          if (errorOutput.includes('No state file was found') ||
+              errorOutput.includes('The state file is empty')) {
+            console.warn(`[OpenTofu] No outputs available for ${this.key} (no state or empty state)`);
+            resolve({}); // Return empty object instead of failing
+            return;
+          }
+
+          console.error(`[OpenTofu] Output retrieval failed for ${this.key} (exit code: ${code})`);
+          console.error(`[OpenTofu] Error output: ${errorOutput}`);
+          reject(new Error(`Output retrieval failed with exit code ${code}: ${errorOutput}`));
+          return;
+        }
+
+        try {
+          // Parse the JSON output
+          if (!output.trim()) {
+            console.warn(`[OpenTofu] Empty output received for ${this.key}`);
+            resolve({});
+            return;
+          }
+
+          const rawOutputs = JSON.parse(output);
+
+          // Check if outputs object is empty
+          if (Object.keys(rawOutputs).length === 0) {
+            console.log(`[OpenTofu] No outputs defined for ${this.key}`);
+            resolve({});
+            return;
+          }
+
+          // Extract only the values from the Terraform output structure
+          const cleanOutputs = this._extractOutputValues(rawOutputs);
+
+          console.log(`[OpenTofu] Successfully retrieved ${Object.keys(cleanOutputs).length} outputs for ${this.key}`);
+          resolve(cleanOutputs);
+
+        } catch (parseError) {
+          console.error(`[OpenTofu] Failed to parse output JSON for ${this.key}:`, parseError.message);
+          console.error(`[OpenTofu] Raw output was:`, output);
+          reject(new Error(`Failed to parse output JSON: ${parseError.message}`));
+        }
+      });
+    });
+  }
+
+  /**
+   * Extracts clean values from Terraform output structure
+   * @private
+   * @param {Object} rawOutputs - Raw Terraform outputs with metadata
+   * @returns {Object} Clean object containing only the values
+   */
+  _extractOutputValues(rawOutputs) {
+    const cleanOutputs = {};
+
+    for (const [key, outputObj] of Object.entries(rawOutputs)) {
+      if (outputObj && typeof outputObj === 'object' && outputObj.hasOwnProperty('value')) {
+        cleanOutputs[key] = outputObj.value;
+      } else {
+        // Fallback: if structure is unexpected, include the raw value
+        console.warn(`[OpenTofu] Unexpected output structure for ${key}, using raw value`);
+        cleanOutputs[key] = outputObj;
+      }
+    }
+
+    return cleanOutputs;
+  }
+
+  /**
+   * Retrieves a specific output value by key
+   * @param {string} outputKey - The output key to retrieve
+   * @returns {Promise<any>} The specific output value
+   */
+  async getOutputValue(outputKey) {
+    try {
+      const outputs = await this.spawnOutput();
+
+      if (outputs.hasOwnProperty(outputKey)) {
+        return outputs[outputKey];
+      } else {
+        console.warn(`[OpenTofu] Output key '${outputKey}' not found for ${this.key}`);
+        return null;
+      }
+    } catch (error) {
+      console.error(`[OpenTofu] Failed to get output '${outputKey}' for ${this.key}:`, error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Checks if outputs are available (state exists and has resources)
+   * @returns {Promise<boolean>} True if outputs are available
+   */
+  async hasOutputs() {
+    try {
+      const outputs = await this.spawnOutput();
+      return Object.keys(outputs).length > 0;
+    } catch (error) {
+      console.warn(`[OpenTofu] Could not check outputs for ${this.key}:`, error.message);
+      return false;
+    }
+  }
+
+  /**
    * Spawns an OpenTofu command process with timeout and monitoring
    * @param {string} action - Action to execute (plan, apply, destroy)
    * @returns {Promise<ChildProcess>} Spawned process
