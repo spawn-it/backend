@@ -19,7 +19,11 @@ module "provider_infra_aws" {
   count  = var.instance.provider == "aws" ? 1 : 0
   source = "./modules/providers/aws"
 
-  aws_config = var.instance.aws_config // C'est bien
+  aws_config = {
+    region        = var.aws_region
+    instance_type = var.aws_instance_type
+    key_name      = var.aws_key_name
+  }
 
   docker_instance_config = { // C'est bien aussi
     container_name = var.instance.container_name

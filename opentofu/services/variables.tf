@@ -1,16 +1,35 @@
 variable "s3_endpoint" {
+  description = "The endpoint of the S3 service"
   type = string
   default = "localhost:9000"
 }
 
 variable "s3_access_key" {
+  description = "The access key for the S3 service"
   type = string
-  default = ""
 }
 
 variable "s3_secret_key" {
+  description = "The secret key for the S3 service"
   type = string
-  default = ""
+}
+
+variable "aws_region" {
+  description = "AWS region where resources will be created"
+  type = string
+  default = "eu-central-1"
+}
+
+variable "aws_instance_type" {
+  description = "AWS instance type for the container"
+  type = string
+  default = "t3.small"
+}
+
+variable "aws_key_name" {
+  description = "AWS key pair name for SSH access to the instance"
+  type = string
+  default = "game-server-key"
 }
 
 variable "instance" {
