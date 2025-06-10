@@ -83,7 +83,9 @@ class OpentofuExecutor {
           }
 
           sendToClients(clientId, serviceId, JSON.stringify(status.toJSON()), 'end');
-          planLoopManager.start(clientId, serviceId, dataDir);
+          if (action !== 'destroy') {
+            planLoopManager.start(clientId, serviceId, dataDir);
+          }
 
           return code === 0 ? resolve(status) : reject(new Error(`${action} exited with code ${code}`));
         });
