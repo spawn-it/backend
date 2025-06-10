@@ -7,6 +7,7 @@ terraform {
   }
 }
 
+# Creates a named Docker volume.
 resource "docker_volume" "this" {
   name = "volume-${var.volume_for}"
 }

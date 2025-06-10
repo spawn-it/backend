@@ -1,10 +1,9 @@
-
 variable "aws_config" {
   description = "AWS specific configurations like region, instance type, key name."
   type = object({
-    region        = string
-    instance_type = string
-    key_name      = optional(string, null)
+    region        = string                   # The AWS region where the EC2 instance will be created.
+    instance_type = string                   # The type of EC2 instance (e.g., t3.small, m5.large).
+    key_name      = optional(string, null)   # The name of an existing EC2 KeyPair for SSH access.
   })
 }
 
