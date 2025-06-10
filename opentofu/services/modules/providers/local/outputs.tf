@@ -7,7 +7,7 @@ output "instance_id" {
   value = docker_container.instance.id
 }
 
-output "public_ip_or_host" {
+output "instance_public_ip" {
   value = docker_container.instance.network_data[0].ip_address
 }
 

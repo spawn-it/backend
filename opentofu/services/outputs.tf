@@ -9,7 +9,7 @@ output "instance_id" {
 
 output "instance_public_ip_or_host" {
   description = "Public IP address (for cloud) or 'localhost' (for local)."
-  value = try(local.active_module.public_ip_or_host, "N/A")
+  value = try(local.active_module.instance_public_ip, "N/A")
 }
 
 output "all_ports_info" {

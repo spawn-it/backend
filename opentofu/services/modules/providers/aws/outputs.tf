@@ -10,7 +10,7 @@ output "instance_public_ip" {
   value       = aws_instance.this.public_ip
 }
 
-output "all_ports_info" {
+output "ports_info" {
   description = "Detailed information about all exposed ports for the service."
   value = [
     for p in local.processed_ports : {
