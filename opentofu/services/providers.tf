@@ -34,5 +34,5 @@ provider "minio" {
 # --- AWS Provider ---
 # Default configuration for working with AWS resources (e.g., EC2, S3, etc.)
 provider "aws" {
-  region = "eu-central-1" # AWS region (e.g., Frankfurt)
+  region = var.aws_region # AWS region (e.g., Frankfurt)
 }
