@@ -8,7 +8,9 @@ const jobManager = require('./manager/JobManager');
 const planLoopManager = require('./manager/PlanLoopManager');
 const s3Service = require('./s3/S3Service');
 const workingDirectoryService = require('./WorkingDirectoryService');
-const { OPENTOFU_CODE_DIR, NETWORK_CODE_DIR } = require('../config/paths');
+const { OPENTOFU_CODE_DIR } = require('../config/paths');
+const AsyncLock = require('async-lock');
+const actionLock = new AsyncLock();
 
 class TofuService {
   /**
@@ -77,7 +79,15 @@ class TofuService {
    * @returns {Promise<void>}
    */
   async executePlan(clientId, serviceId, bucket) {
-    return OpentofuExecutor.executePlan(clientId, serviceId, bucket);
+    const key = `${clientId}:${serviceId}`;
+
+    return actionLock.acquire(
+        key,
+        async () => {
+          return OpentofuExecutor.executePlan(clientId, serviceId, bucket);
+        },
+        { timeout: 15 * 60 * 1000 }
+    );
   }
 
   /**
@@ -90,8 +100,30 @@ class TofuService {
    * @param {string} opentofuCodeDir - OpenTofu code directory
    * @returns {Promise<void>}
    */
-  async executeAction(action, clientId, serviceId, bucket, res, opentofuCodeDir = OPENTOFU_CODE_DIR) {
-    return OpentofuExecutor.executeAction(action, clientId, serviceId, bucket, res, opentofuCodeDir);
+  async executeAction(
+      action,
+      clientId,
+      serviceId,
+      bucket,
+      res,
+      opentofuCodeDir = OPENTOFU_CODE_DIR
+  ) {
+    const key = `${clientId}:${serviceId}`;
+
+    return actionLock.acquire(
+        key,
+        async () => {
+          return OpentofuExecutor.executeAction(
+              action,
+              clientId,
+              serviceId,
+              bucket,
+              res,
+              opentofuCodeDir
+          );
+        },
+        { timeout: 15 * 60 * 1000 }
+    );
   }
 
   /**
@@ -105,15 +137,6 @@ class TofuService {
   }
 
   /**
-   * Cancels a running job
-   * @param {string} jobId - Job identifier
-   * @returns {boolean} True if cancelled, false if not found
-   */
-  cancelJob(jobId) {
-    return jobManager.cancelJob(jobId);
-  }
-
-  /**
    * Checks network infrastructure status
    * @param {string} clientId - Client identifier
    * @param {string} bucket - S3 bucket name
@@ -122,29 +145,6 @@ class TofuService {
    */
   async checkNetworkStatus(clientId, bucket, key) {
     return NetworkService.checkStatus(clientId, bucket, key);
-  }
-
-  /**
-   * Gets service statistics and monitoring info
-   * @returns {Object} Statistics object with active jobs and loops
-   */
-  getStats() {
-    return {
-      activeJobs: jobManager.getActiveJobs().length,
-      activePlanLoops: planLoopManager.getActiveLoops().length,
-      jobIds: jobManager.getActiveJobs(),
-      planLoopKeys: planLoopManager.getActiveLoops()
-    };
-  }
-
-  /**
-   * Cleans up all resources for a specific client
-   * @param {string} clientId - Client identifier
-   * @returns {Promise<void>}
-   */
-  async cleanupClient(clientId) {
-    planLoopManager.stopAllForClient(clientId);
-    await workingDirectoryService.cleanupClient(clientId);
   }
 
   /**
