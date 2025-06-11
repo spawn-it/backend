@@ -9,7 +9,7 @@ terraform {
 
 # Pull the Docker image specified by the 'image' variable
 resource "docker_image" "instance" {
-  name         = var.image
+  name = var.image
   # Do retain the image locally after pulling it can be used for other containers
   keep_locally = true
 }

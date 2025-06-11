@@ -10,8 +10,8 @@ terraform {
 # This module creates a Docker network if the selected provider is "local"
 # Ensures that local containers can communicate over a custom user-defined bridge network
 module "network_create" {
-  count        = var.instance.provider == "local" ? 1 : 0
-  source       = "./modules/providers/local"
+  count  = var.instance.provider == "local" ? 1 : 0
+  source = "./modules/providers/local"
 
   # Name of the Docker network to create or use
   network_name = var.instance.network_name

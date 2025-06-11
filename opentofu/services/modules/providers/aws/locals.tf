@@ -42,13 +42,13 @@ IMAGE_NAME="${var.docker_instance_config.image}"
 echo "Pulling Docker image: $${IMAGE_NAME}"
 docker pull "$${IMAGE_NAME}"
 
-%{if length(var.docker_instance_config.volume_mounts) > 0 ~}
+%{if length(var.docker_instance_config.volume_mounts) > 0~}
 echo "Creating host directories for volume mounts..."
-%{for vm in var.docker_instance_config.volume_mounts ~}
+%{for vm in var.docker_instance_config.volume_mounts~}
 mkdir -p "${vm.host_path}"
 echo "Ensured host directory ${vm.host_path} exists."
-%{endfor ~}
-%{endif ~}
+%{endfor~}
+%{endif~}
 
 DOCKER_RUN_CMD="docker run -d --restart always \\
   ${join(" \\\n  ", local.formatted_env_vars)} \\
@@ -78,7 +78,7 @@ EOF
   first_tcp_port_list = [
     for p in local.processed_ports : p if lower(p.protocol) == "tcp"
   ]
-  
+
   # Determine the primary port for the access URL.
   actual_primary_port_info = length(local.web_port_list) > 0 ? local.web_port_list[0] : (
     length(local.first_tcp_port_list) > 0 ? local.first_tcp_port_list[0] : null

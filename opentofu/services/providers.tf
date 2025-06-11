@@ -25,10 +25,10 @@ terraform {
 # Configures connection to an S3-compatible storage (e.g., self-hosted MinIO)
 # Used for operations like uploading/downloading tfvars, configs, templates, etc.
 provider "minio" {
-  alias          = "s3"                  # Optional alias if multiple MinIO endpoints are used
-  minio_server   = var.s3_endpoint       # Endpoint URL of the MinIO/S3-compatible server
-  minio_user     = var.s3_access_key     # Access key for authentication
-  minio_password = var.s3_secret_key     # Secret key for authentication
+  alias          = "s3"              # Optional alias if multiple MinIO endpoints are used
+  minio_server   = var.s3_endpoint   # Endpoint URL of the MinIO/S3-compatible server
+  minio_user     = var.s3_access_key # Access key for authentication
+  minio_password = var.s3_secret_key # Secret key for authentication
 }
 
 # --- AWS Provider ---

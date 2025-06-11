@@ -27,7 +27,7 @@ variable "s3_secret_key" {
 variable "aws_region" {
   description = "AWS region where resources will be created"
   type        = string
-  default     = "eu-central-1"  # Frankfurt
+  default     = "eu-central-1" # Frankfurt
 }
 
 # EC2 instance type to use for running the container (e.g., t3.micro, t3.small)
@@ -50,21 +50,21 @@ variable "aws_key_name" {
 variable "instance" {
   description = "Container instance configurations"
   type = object({
-    provider       = string                       # Target provider: "local" or "aws"
-    container_name = string                       # Desired name for the container/service
-    image          = string                       # Docker image to use
-    ports          = map(string)                  # Port mappings: { "internal_container_port_str" = "external_host_port_str" }
-    env_vars       = optional(map(string), {})    # Environment variables for the container
-    command        = optional(list(string), [])   # Command to run in the container
-    volume_mounts  = optional(list(object({       # Volume mounts
-      host_path      = string                     # Path on the Docker host (for local) or EC2 instance (for AWS bind mounts)
-      container_path = string                     # Path inside the container
+    provider       = string                     # Target provider: "local" or "aws"
+    container_name = string                     # Desired name for the container/service
+    image          = string                     # Docker image to use
+    ports          = map(string)                # Port mappings: { "internal_container_port_str" = "external_host_port_str" }
+    env_vars       = optional(map(string), {})  # Environment variables for the container
+    command        = optional(list(string), []) # Command to run in the container
+    volume_mounts = optional(list(object({      # Volume mounts
+      host_path      = string                   # Path on the Docker host (for local) or EC2 instance (for AWS bind mounts)
+      container_path = string                   # Path inside the container
     })), [])
-    network_name   = string                       # Logical network name (used by local Docker, could map to VPC/subnet for AWS)
-      aws_config = optional(object({              # AWS-specific configuration, provided if provider is "aws".
-      region        = optional(string)            # Region for this specific EC2 instance
-      instance_type = optional(string)            # EC2 instance type
-      key_name      = optional(string, null)      # EC2 key pair name for SSH access
-    }), null)                                     # Default to null if not an AWS deployment
+    network_name = string                    # Logical network name (used by local Docker, could map to VPC/subnet for AWS)
+    aws_config = optional(object({           # AWS-specific configuration, provided if provider is "aws".
+      region        = optional(string)       # Region for this specific EC2 instance
+      instance_type = optional(string)       # EC2 instance type
+      key_name      = optional(string, null) # EC2 key pair name for SSH access
+    }), null)                                # Default to null if not an AWS deployment
   })
 }

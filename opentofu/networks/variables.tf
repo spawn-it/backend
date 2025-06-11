@@ -5,8 +5,8 @@
 variable "instance" {
   description = "Configuration of the network to be created"
   type = object({
-    provider     = string  # Deployment provider (e.g., "local")
-    network_name = string  # Name of the Docker network to create
+    provider     = string # Deployment provider (e.g., "local")
+    network_name = string # Name of the Docker network to create
   })
 }
 

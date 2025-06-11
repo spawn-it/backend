@@ -11,14 +11,14 @@ terraform {
 # Data source to find the latest Ubuntu 22.04 LTS AMI for amd64.
 # This ensures the EC2 instance uses a recent and common Linux distribution.
 data "aws_ami" "ubuntu" {
-  most_recent = true        # Selects the newest AMI matching the filters.
+  most_recent = true # Selects the newest AMI matching the filters.
   filter {
     name   = "name"
     values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"]
   }
   filter {
     name   = "virtualization-type"
-    values = ["hvm"]        # Hardware Virtual Machine
+    values = ["hvm"] # Hardware Virtual Machine
   }
   owners = ["099720109477"] # Canonical's official AWS account ID for Ubuntu images.
 }
@@ -32,10 +32,10 @@ resource "aws_security_group" "instance_sg" {
   dynamic "ingress" {
     for_each = local.processed_ports
     content {
-      from_port   = ingress.value.external  # Start of the port range (same as to_port for single ports).
-      to_port     = ingress.value.external  # End of the port range.
-      protocol    = ingress.value.protocol  # Protocol (e.g., "tcp", "udp").
-      cidr_blocks = ["0.0.0.0/0"]           # Allows traffic from any IP address
+      from_port   = ingress.value.external # Start of the port range (same as to_port for single ports).
+      to_port     = ingress.value.external # End of the port range.
+      protocol    = ingress.value.protocol # Protocol (e.g., "tcp", "udp").
+      cidr_blocks = ["0.0.0.0/0"]          # Allows traffic from any IP address
       description = "Port ${ingress.value.external}/${ingress.value.protocol} for ${var.docker_instance_config.container_name}"
     }
   }
@@ -59,8 +59,8 @@ resource "aws_security_group" "instance_sg" {
   }
 
   tags = {
-    Name           = var.docker_instance_config.container_name  # Tag the SG with the container name.
-    SpawnItService = var.docker_instance_config.container_name  # Custom tag for identifying SpawnIt services.
+    Name           = var.docker_instance_config.container_name # Tag the SG with the container name.
+    SpawnItService = var.docker_instance_config.container_name # Custom tag for identifying SpawnIt services.
   }
 }
 
@@ -74,8 +74,8 @@ resource "aws_instance" "this" {
   vpc_security_group_ids      = [aws_security_group.instance_sg.id] # Associate with the created Security Group.
 
   tags = {
-    Name           = var.docker_instance_config.container_name      # Tag the instance.
-    SpawnItService = var.docker_instance_config.container_name      # Custom tag.
-    Image          = var.docker_instance_config.image               # Tag with the Docker image being run.
+    Name           = var.docker_instance_config.container_name # Tag the instance.
+    SpawnItService = var.docker_instance_config.container_name # Custom tag.
+    Image          = var.docker_instance_config.image          # Tag with the Docker image being run.
   }
 }
