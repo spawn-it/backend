@@ -28,7 +28,6 @@ class OpentofuExecutor {
    * @param {string} codeDir - OpenTofu code directory
    * @returns {Promise<void>}
    */
-// executor/OpentofuExecutor.js
   static executeAction(action, clientId, serviceId, bucket, res = null, codeDir = OPENTOFU_CODE_DIR) {
     return new Promise(async (resolve, reject) => {
       try {

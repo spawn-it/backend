@@ -64,10 +64,10 @@ router.delete('/clients/:clientId/:serviceId', async (req, res) => {
 });
 
 /**
- * SSE endpoint for real-time plan output streaming
- * GET /clients/:clientId/:serviceId/plan/stream
+ * SSE endpoint for real-time output streaming
+ * GET /clients/:clientId/:serviceId/stream
  */
-router.get('/clients/:clientId/:serviceId/plan/stream', (req, res) => {
+router.get('/clients/:clientId/:serviceId/stream', (req, res) => {
   const { clientId, serviceId } = req.params;
 
   res.writeHead(200, {
@@ -226,11 +226,11 @@ router.post('/clients/:clientId/:serviceType/config', async (req, res) => {
     const serviceInformation = {
       serviceName: config.container_name,
       serviceType: serviceType,
+      provider: config.provider,
       autoApply: false,
       status: {},
     };
 
-    // Maintenant on écrase container_name pour terraform
     config['container_name'] = uuidv4();
     const serviceInfoKey = PathHelper.getServiceInfoKey(clientId, serviceId);
     await tofuService.createFile(bucketName, serviceInfoKey, JSON.stringify(serviceInformation, null, 2));
@@ -279,21 +279,6 @@ router.post('/clients/:clientId/:serviceId/:action', async (req, res) => {
     if (!res.headersSent) {
       res.status(500).json({ error: `Error executing action ${action}` });
     }
-  }
-});
-
-/**
- * Cancels a running job
- * DELETE /jobs/:jobId
- */
-router.delete('/jobs/:jobId', async (req, res) => {
-  const { jobId } = req.params;
-  try {
-    tofuService.cancelJob(jobId);
-    res.json({ status: 'job cancelled' });
-  } catch (err) {
-    console.error(`Error cancelling job ${jobId}:`, err);
-    res.status(500).json({ error: "Unable to cancel job" });
   }
 });
 
