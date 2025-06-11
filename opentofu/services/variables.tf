@@ -1,37 +1,48 @@
+# Endpoint of the S3-compatible service (e.g., "localhost:9000" for MinIO)
+# Should include host and port, without protocol (http/https is added by the provider)
 variable "s3_endpoint" {
   description = "The endpoint of the S3 service"
-  type = string
-  default = "localhost:9000"
+  type        = string
+  default     = "localhost:9000"
 }
 
+# Access key for the S3-compatible storage
+# Acts like AWS_ACCESS_KEY_ID
 variable "s3_access_key" {
   description = "The access key for the S3 service"
-  type = string
+  type        = string
   sensitive   = true
 }
 
+# Secret key for the S3-compatible storage
+# Acts like AWS_SECRET_ACCESS_KEY
 variable "s3_secret_key" {
   description = "The secret key for the S3 service"
-  type = string
+  type        = string
   sensitive   = true
 }
 
+
+# AWS region in which resources like EC2 instances will be deployed
 variable "aws_region" {
   description = "AWS region where resources will be created"
-  type = string
-  default = "eu-central-1"
+  type        = string
+  default     = "eu-central-1"  # Frankfurt
 }
 
+# EC2 instance type to use for running the container (e.g., t3.micro, t3.small)
 variable "aws_instance_type" {
   description = "AWS instance type for the container"
-  type = string
-  default = "t3.small"
+  type        = string
+  default     = "t3.small"
 }
 
+# Name of the AWS key pair to associate with the EC2 instance for SSH access
+# The key pair must already exist in the selected region
 variable "aws_key_name" {
   description = "AWS key pair name for SSH access to the instance"
-  type = string
-  default = "game-server-key"
+  type        = string
+  default     = "game-server-key"
 }
 
 # Main input variable defining the service instance to be deployed.
