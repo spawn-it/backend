@@ -20,36 +20,12 @@ class InstanceManager {
   getInstance(clientId, serviceId, dataDir, codeDir) {
     const key = `${clientId}/${serviceId}`;
     if (!this.instances.has(key)) {
-      this.instances.set(key, new OpenTofuCommand(clientId, serviceId, codeDir, dataDir));
+      this.instances.set(
+        key,
+        new OpenTofuCommand(clientId, serviceId, codeDir, dataDir)
+      );
     }
     return this.instances.get(key);
-  }
-
-  /**
-   * Removes an instance from the manager
-   * @param {string} clientId - Client identifier
-   * @param {string} serviceId - Service identifier
-   * @returns {boolean} True if instance was removed
-   */
-  removeInstance(clientId, serviceId) {
-    const key = `${clientId}/${serviceId}`;
-    return this.instances.delete(key);
-  }
-
-  /**
-   * Removes all instances for a specific client
-   * @param {string} clientId - Client identifier
-   * @returns {number} Number of instances removed
-   */
-  removeClientInstances(clientId) {
-    let removedCount = 0;
-    for (const key of this.instances.keys()) {
-      if (key.startsWith(`${clientId}/`)) {
-        this.instances.delete(key);
-        removedCount++;
-      }
-    }
-    return removedCount;
   }
 }
 

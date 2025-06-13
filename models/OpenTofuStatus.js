@@ -13,7 +13,14 @@ class OpenTofuStatus {
    * @param {Error|null} error - Optional error object
    * @param {boolean} applied - Whether infrastructure is applied/up-to-date
    */
-  constructor(key, lastAction, output, timestamp = new Date(), error = null, applied = false) {
+  constructor(
+    key,
+    lastAction,
+    output,
+    timestamp = new Date(),
+    error = null,
+    applied = false
+  ) {
     this.key = key;
     this.lastAction = lastAction;
     this.output = output;
@@ -34,7 +41,7 @@ class OpenTofuStatus {
       timestamp: this.timestamp.toISOString(),
       errorMessage: this.error ? this.error.message : null,
       errorStack: this.error ? this.error.stack : null,
-      applied: this.applied
+      applied: this.applied,
     };
   }
 
@@ -50,15 +57,28 @@ class OpenTofuStatus {
     let applied = false;
 
     // Check for various "no changes" patterns
-    if (/No changes\. (?:Infrastructure is up-to-date\.|Your infrastructure matches the configuration\.)/i.test(output)) {
+    if (
+      /No changes\. (?:Infrastructure is up-to-date\.|Your infrastructure matches the configuration\.)/i.test(
+        output
+      )
+    ) {
       applied = true;
-    } else if (/Plan: \d+ to add, \d+ to change, \d+ to destroy\./i.test(output)) {
+    } else if (
+      /Plan: \d+ to add, \d+ to change, \d+ to destroy\./i.test(output)
+    ) {
       applied = false;
     } else if (/No changes\./i.test(output)) {
       applied = true;
     }
 
-    return new OpenTofuStatus(key, lastAction, output, new Date(), null, applied);
+    return new OpenTofuStatus(
+      key,
+      lastAction,
+      output,
+      new Date(),
+      null,
+      applied
+    );
   }
 
   /**
@@ -70,7 +90,14 @@ class OpenTofuStatus {
    * @returns {OpenTofuStatus} Status instance representing the error state
    */
   static fromError(key, output, error, lastAction = 'unknown') {
-    return new OpenTofuStatus(key, lastAction, output, new Date(), error, false);
+    return new OpenTofuStatus(
+      key,
+      lastAction,
+      output,
+      new Date(),
+      error,
+      false
+    );
   }
 }
 

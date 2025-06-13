@@ -35,7 +35,10 @@ class OpenTofuCommand {
       this.initialized = true;
       return true;
     } catch (err) {
-      console.error(`[OpenTofu] Initialization failed for ${this.key}:`, err.message);
+      console.error(
+        `[OpenTofu] Initialization failed for ${this.key}:`,
+        err.message
+      );
       return false;
     }
   }
@@ -62,7 +65,7 @@ class OpenTofuCommand {
       const proc = spawn(this.tofuBin, args, {
         cwd: this.codeDir,
         env,
-        stdio: ['pipe', 'pipe', 'pipe']
+        stdio: ['pipe', 'pipe', 'pipe'],
       });
 
       // Set timeout for the operation
@@ -89,7 +92,10 @@ class OpenTofuCommand {
 
       proc.on('error', (err) => {
         clearTimeout(timeout);
-        console.error(`[OpenTofu] Output command error for ${this.key}:`, err.message);
+        console.error(
+          `[OpenTofu] Output command error for ${this.key}:`,
+          err.message
+        );
         reject(new Error(`Output retrieval failed: ${err.message}`));
       });
 
@@ -98,16 +104,26 @@ class OpenTofuCommand {
 
         if (code !== 0) {
           // Handle common error cases
-          if (errorOutput.includes('No state file was found') ||
-              errorOutput.includes('The state file is empty')) {
-            console.warn(`[OpenTofu] No outputs available for ${this.key} (no state or empty state)`);
+          if (
+            errorOutput.includes('No state file was found') ||
+            errorOutput.includes('The state file is empty')
+          ) {
+            console.warn(
+              `[OpenTofu] No outputs available for ${this.key} (no state or empty state)`
+            );
             resolve({}); // Return empty object instead of failing
             return;
           }
 
-          console.error(`[OpenTofu] Output retrieval failed for ${this.key} (exit code: ${code})`);
+          console.error(
+            `[OpenTofu] Output retrieval failed for ${this.key} (exit code: ${code})`
+          );
           console.error(`[OpenTofu] Error output: ${errorOutput}`);
-          reject(new Error(`Output retrieval failed with exit code ${code}: ${errorOutput}`));
+          reject(
+            new Error(
+              `Output retrieval failed with exit code ${code}: ${errorOutput}`
+            )
+          );
           return;
         }
 
@@ -131,13 +147,19 @@ class OpenTofuCommand {
           // Extract only the values from the Terraform output structure
           const cleanOutputs = this._extractOutputValues(rawOutputs);
 
-          console.log(`[OpenTofu] Successfully retrieved ${Object.keys(cleanOutputs).length} outputs for ${this.key}`);
+          console.log(
+            `[OpenTofu] Successfully retrieved ${Object.keys(cleanOutputs).length} outputs for ${this.key}`
+          );
           resolve(cleanOutputs);
-
         } catch (parseError) {
-          console.error(`[OpenTofu] Failed to parse output JSON for ${this.key}:`, parseError.message);
+          console.error(
+            `[OpenTofu] Failed to parse output JSON for ${this.key}:`,
+            parseError.message
+          );
           console.error(`[OpenTofu] Raw output was:`, output);
-          reject(new Error(`Failed to parse output JSON: ${parseError.message}`));
+          reject(
+            new Error(`Failed to parse output JSON: ${parseError.message}`)
+          );
         }
       });
     });
@@ -153,11 +175,16 @@ class OpenTofuCommand {
     const cleanOutputs = {};
 
     for (const [key, outputObj] of Object.entries(rawOutputs)) {
-      if (outputObj && typeof outputObj === 'object' && outputObj.hasOwnProperty('value')) {
+      if (
+        outputObj &&
+        typeof outputObj === 'object' && Object.prototype.hasOwnProperty.call(outputObj, 'value')
+      ) {
         cleanOutputs[key] = outputObj.value;
       } else {
         // Fallback: if structure is unexpected, include the raw value
-        console.warn(`[OpenTofu] Unexpected output structure for ${key}, using raw value`);
+        console.warn(
+          `[OpenTofu] Unexpected output structure for ${key}, using raw value`
+        );
         cleanOutputs[key] = outputObj;
       }
     }
@@ -174,14 +201,19 @@ class OpenTofuCommand {
     try {
       const outputs = await this.spawnOutput();
 
-      if (outputs.hasOwnProperty(outputKey)) {
+      if (Object.prototype.hasOwnProperty.call(outputs, outputKey)) {
         return outputs[outputKey];
       } else {
-        console.warn(`[OpenTofu] Output key '${outputKey}' not found for ${this.key}`);
+        console.warn(
+          `[OpenTofu] Output key '${outputKey}' not found for ${this.key}`
+        );
         return null;
       }
     } catch (error) {
-      console.error(`[OpenTofu] Failed to get output '${outputKey}' for ${this.key}:`, error.message);
+      console.error(
+        `[OpenTofu] Failed to get output '${outputKey}' for ${this.key}:`,
+        error.message
+      );
       throw error;
     }
   }
@@ -195,7 +227,10 @@ class OpenTofuCommand {
       const outputs = await this.spawnOutput();
       return Object.keys(outputs).length > 0;
     } catch (error) {
-      console.warn(`[OpenTofu] Could not check outputs for ${this.key}:`, error.message);
+      console.warn(
+        `[OpenTofu] Could not check outputs for ${this.key}:`,
+        error.message
+      );
       return false;
     }
   }
@@ -219,7 +254,7 @@ class OpenTofuCommand {
     const proc = spawn(this.tofuBin, args, {
       cwd: this.codeDir,
       env,
-      stdio: ['pipe', 'pipe', 'pipe'] // Ensure we can interact with stdin
+      stdio: ['pipe', 'pipe', 'pipe'], // Ensure we can interact with stdin
     });
 
     // Set up monitoring for stuck processes
@@ -251,21 +286,32 @@ class OpenTofuCommand {
     const stuckInterval = setInterval(() => {
       const timeSinceOutput = Date.now() - lastOutputTime;
 
-      if (timeSinceOutput > 15000 && hasOutput) { // 15 seconds since last output
-        console.warn(`[OpenTofu] Process appears stuck for ${this.key} (${action})`);
-        console.warn(`[OpenTofu] Sending newline to potentially unstick process...`);
+      if (timeSinceOutput > 15000 && hasOutput) {
+        // 15 seconds since last output
+        console.warn(
+          `[OpenTofu] Process appears stuck for ${this.key} (${action})`
+        );
+        console.warn(
+          `[OpenTofu] Sending newline to potentially unstick process...`
+        );
 
         // Try to unstick by sending newlines
         try {
           proc.stdin.write('\n');
           proc.stdin.write('yes\n'); // In case it's waiting for confirmation
         } catch (err) {
-          console.warn(`[OpenTofu] Could not write to process stdin:`, err.message);
+          console.warn(
+            `[OpenTofu] Could not write to process stdin:`,
+            err.message
+          );
         }
       }
 
-      if (timeSinceOutput > 45000) { // 45 seconds total timeout
-        console.error(`[OpenTofu] Killing stuck process for ${this.key} (${action})`);
+      if (timeSinceOutput > 45000) {
+        // 45 seconds total timeout
+        console.error(
+          `[OpenTofu] Killing stuck process for ${this.key} (${action})`
+        );
         clearInterval(stuckInterval);
         proc.kill('SIGTERM');
 
@@ -292,9 +338,13 @@ class OpenTofuCommand {
     // Log completion
     proc.on('close', (code) => {
       if (code !== 0) {
-        console.error(`[OpenTofu] Process exited with code ${code} for ${this.key} (${action})`);
+        console.error(
+          `[OpenTofu] Process exited with code ${code} for ${this.key} (${action})`
+        );
       } else {
-        console.log(`[OpenTofu] ${action} completed successfully for ${this.key}`);
+        console.log(
+          `[OpenTofu] ${action} completed successfully for ${this.key}`
+        );
       }
     });
   }
@@ -319,7 +369,9 @@ class OpenTofuCommand {
 
       // Set timeout for hung processes
       const timeout = setTimeout(() => {
-        console.warn(`[OpenTofu] Plan timeout for ${this.key}, killing process`);
+        console.warn(
+          `[OpenTofu] Plan timeout for ${this.key}, killing process`
+        );
         proc.kill('SIGTERM');
 
         setTimeout(() => {
@@ -334,17 +386,20 @@ class OpenTofuCommand {
       const proc = spawn(this.tofuBin, args, {
         cwd: this.codeDir,
         env,
-        stdio: ['pipe', 'pipe', 'pipe']
+        stdio: ['pipe', 'pipe', 'pipe'],
       });
 
       // Monitor for stuck processes
       const stuckCheck = setInterval(() => {
         const timeSinceOutput = Date.now() - lastOutputTime;
-        if (timeSinceOutput > 20000) { // 20 seconds without output
-          console.warn(`[OpenTofu] Plan seems stuck for ${this.key}, sending newline...`);
+        if (timeSinceOutput > 20000) {
+          // 20 seconds without output
+          console.warn(
+            `[OpenTofu] Plan seems stuck for ${this.key}, sending newline...`
+          );
           try {
             proc.stdin.write('\n');
-          } catch (err) {
+          } catch {
             // Ignore stdin errors
           }
         }
@@ -377,10 +432,14 @@ class OpenTofuCommand {
         clearInterval(stuckCheck);
 
         if (code !== 0) {
-          console.error(`[OpenTofu] Plan failed for ${this.key} (exit code: ${code})`);
+          console.error(
+            `[OpenTofu] Plan failed for ${this.key} (exit code: ${code})`
+          );
           reject(new Error(`Plan failed with exit code ${code}`));
         } else if (hasError) {
-          console.warn(`[OpenTofu] Plan completed with warnings for ${this.key}`);
+          console.warn(
+            `[OpenTofu] Plan completed with warnings for ${this.key}`
+          );
           resolve(output);
         } else {
           resolve(output);
@@ -400,7 +459,7 @@ class OpenTofuCommand {
       const proc = spawn(this.tofuBin, ['state', 'list'], {
         cwd: this.codeDir,
         env,
-        stdio: ['pipe', 'pipe', 'pipe']
+        stdio: ['pipe', 'pipe', 'pipe'],
       });
 
       let output = '';
@@ -438,7 +497,7 @@ class OpenTofuCommand {
       TF_VAR_data_dir: this.dataDir,
       TF_VAR_s3_endpoint: process.env.S3_URL,
       TF_VAR_s3_access_key: process.env.S3_ACCESS_KEY,
-      TF_VAR_s3_secret_key: process.env.S3_SECRET_KEY
+      TF_VAR_s3_secret_key: process.env.S3_SECRET_KEY,
     };
   }
 
@@ -458,7 +517,7 @@ class OpenTofuCommand {
       `-backend-config=secret_key=${process.env.S3_SECRET_KEY}`,
       `-backend-config=skip_credentials_validation=true`,
       `-backend-config=skip_metadata_api_check=true`,
-      `-backend-config=force_path_style=true`
+      `-backend-config=force_path_style=true`,
     ];
   }
 
@@ -520,12 +579,15 @@ class OpenTofuCommand {
         output += data;
         if (logOutput) {
           // Only log important init messages
-          const lines = data.split('\n').filter(line =>
-              line.includes('Initializing') ||
-              line.includes('Successfully') ||
-              line.includes('Error')
-          );
-          lines.forEach(line => {
+          const lines = data
+            .split('\n')
+            .filter(
+              (line) =>
+                line.includes('Initializing') ||
+                line.includes('Successfully') ||
+                line.includes('Error')
+            );
+          lines.forEach((line) => {
             if (line.trim()) console.log(`[OpenTofu] ${line.trim()}`);
           });
         }
@@ -548,7 +610,9 @@ class OpenTofuCommand {
           reject(new Error(`${command} exited with code ${code}`));
         } else {
           if (logOutput) {
-            console.log(`[OpenTofu] ${command} completed successfully for ${this.key}`);
+            console.log(
+              `[OpenTofu] ${command} completed successfully for ${this.key}`
+            );
           }
           resolve(output);
         }

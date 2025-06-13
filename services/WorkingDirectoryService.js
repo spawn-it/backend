@@ -9,7 +9,9 @@ const PathHelper = require('../utils/pathHelper');
 
 class WorkingDirectoryService {
   constructor() {
-    this.baseWorkingDir = path.resolve(process.env.TOFU_WORKING_DIR || './workdirs');
+    this.baseWorkingDir = path.resolve(
+      process.env.TOFU_WORKING_DIR || './workdirs'
+    );
   }
 
   /**
@@ -59,7 +61,10 @@ class WorkingDirectoryService {
     try {
       await fs.rm(clientDir, { recursive: true, force: true });
     } catch (err) {
-      console.warn(`[WorkingDir] Failed to cleanup client ${clientId}:`, err.message);
+      console.warn(
+        `[WorkingDir] Failed to cleanup client ${clientId}:`,
+        err.message
+      );
     }
   }
 }

@@ -2,7 +2,7 @@ name: Build and Publish Backend (FastAPI + OpenTofu)
 
 on:
   push:
-    branches: ["main"]
+    branches: ['main']
 
 jobs:
   build-and-push:

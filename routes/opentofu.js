@@ -45,7 +45,13 @@ router.delete('/clients/:clientId/:serviceId', async (req, res) => {
 
     // Execute destroy action
     try {
-      await tofuService.executeAction(Action.DESTROY, clientId, serviceId, bucketName, null);
+      await tofuService.executeAction(
+        Action.DESTROY,
+        clientId,
+        serviceId,
+        bucketName,
+        null
+      );
     } catch (e) {
       console.warn(`Destroy failed for ${clientId}/${serviceId}:`, e.message);
     }
@@ -53,13 +59,17 @@ router.delete('/clients/:clientId/:serviceId', async (req, res) => {
     const prefix = PathHelper.getServicePrefix(clientId, serviceId);
     await Promise.all([
       tofuService.deleteServiceFiles(bucketName, prefix),
-      tofuService.cleanupService(clientId, serviceId)
+      tofuService.cleanupService(clientId, serviceId),
     ]);
 
-    res.json({ status: 'deleted', message: `Service ${serviceId} completely deleted` });
+    res.json({
+      status: 'deleted',
+      message: `Service ${serviceId} completely deleted`,
+    });
   } catch (err) {
     console.error(`Error deleting service ${clientId}/${serviceId}:`, err);
-    if (!res.headersSent) res.status(500).json({ error: 'Error deleting service' });
+    if (!res.headersSent)
+      res.status(500).json({ error: 'Error deleting service' });
   }
 });
 
@@ -73,7 +83,7 @@ router.get('/clients/:clientId/:serviceId/stream', (req, res) => {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream; charset=utf-8',
     'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive'
+    Connection: 'keep-alive',
   });
 
   registerClient(clientId, serviceId, res);
@@ -129,22 +139,26 @@ router.post('/clients/:clientId/network/config', async (req, res) => {
         provider: config.provider,
         network_name: config.network_name,
         region: config.region || DefaultValues.REGION,
-        environment: config.environment || DefaultValues.ENVIRONMENT
-      }
+        environment: config.environment || DefaultValues.ENVIRONMENT,
+      },
     };
 
-    await tofuService.createFile(bucketName, key, JSON.stringify(networkConfig, null, 2));
+    await tofuService.createFile(
+      bucketName,
+      key,
+      JSON.stringify(networkConfig, null, 2)
+    );
 
     res.json({
       status: 'uploaded',
       key,
-      config: networkConfig
+      config: networkConfig,
     });
   } catch (err) {
     console.error('Error uploading network config:', err);
     res.status(500).json({
-      error: "Failed to upload network configuration",
-      details: err.message
+      error: 'Failed to upload network configuration',
+      details: err.message,
     });
   }
 });
@@ -159,7 +173,11 @@ router.get('/clients/:clientId/network/status', async (req, res) => {
   const key = PathHelper.getNetworkConfigKey(clientId, provider);
 
   try {
-    const status = await tofuService.checkNetworkStatus(clientId, bucketName, key);
+    const status = await tofuService.checkNetworkStatus(
+      clientId,
+      bucketName,
+      key
+    );
     res.json(status);
   } catch (err) {
     console.error(`Error checking network status for ${clientId}:`, err);
@@ -180,16 +198,28 @@ router.post('/clients/:clientId/network/:action', async (req, res) => {
   }
 
   if (!provider) {
-    return res.status(400).json({ error: "Provider missing for network action" });
+    return res
+      .status(400)
+      .json({ error: 'Provider missing for network action' });
   }
 
   const servicePath = PathHelper.getNetworkServiceId(provider);
   const sourcePath = `./opentofu/networks/${provider}`;
 
   try {
-    await tofuService.executeAction(action, clientId, servicePath, bucketName, res, sourcePath);
+    await tofuService.executeAction(
+      action,
+      clientId,
+      servicePath,
+      bucketName,
+      res,
+      sourcePath
+    );
   } catch (err) {
-    console.error(`Error executing ${action} for ${clientId}/${servicePath}:`, err);
+    console.error(
+      `Error executing ${action} for ${clientId}/${servicePath}:`,
+      err
+    );
     if (!res.headersSent) {
       res.status(500).json({ error: `Error executing action ${action}` });
     }
@@ -233,15 +263,25 @@ router.post('/clients/:clientId/:serviceType/config', async (req, res) => {
 
     config['container_name'] = uuidv4();
     const serviceInfoKey = PathHelper.getServiceInfoKey(clientId, serviceId);
-    await tofuService.createFile(bucketName, serviceInfoKey, JSON.stringify(serviceInformation, null, 2));
+    await tofuService.createFile(
+      bucketName,
+      serviceInfoKey,
+      JSON.stringify(serviceInformation, null, 2)
+    );
     const configKey = PathHelper.getServiceConfigKey(clientId, serviceId);
     const serviceConfig = { instance: config };
-    await tofuService.createFile(bucketName, configKey, JSON.stringify(serviceConfig, null, 2));
+    await tofuService.createFile(
+      bucketName,
+      configKey,
+      JSON.stringify(serviceConfig, null, 2)
+    );
     res.json({ status: 'uploaded', serviceId });
   } catch (err) {
     console.error('Error uploading config:', err);
     console.error('Stack trace:', err.stack);
-    res.status(500).json({ error: "Failed to upload configuration", details: err.message });
+    res
+      .status(500)
+      .json({ error: 'Failed to upload configuration', details: err.message });
   }
 });
 
@@ -257,7 +297,7 @@ router.delete('/clients/:clientId/:serviceId/plan', async (req, res) => {
     res.json({ status: 'plan loop stopped' });
   } catch (err) {
     console.error(`Error stopping plan for ${clientId}/${serviceId}:`, err);
-    res.status(500).json({ error: "Unable to stop plan" });
+    res.status(500).json({ error: 'Unable to stop plan' });
   }
 });
 
@@ -273,9 +313,18 @@ router.post('/clients/:clientId/:serviceId/:action', async (req, res) => {
   }
 
   try {
-    await tofuService.executeAction(action, clientId, serviceId, bucketName, res);
+    await tofuService.executeAction(
+      action,
+      clientId,
+      serviceId,
+      bucketName,
+      res
+    );
   } catch (err) {
-    console.error(`Error executing ${action} for ${clientId}/${serviceId}:`, err);
+    console.error(
+      `Error executing ${action} for ${clientId}/${serviceId}:`,
+      err
+    );
     if (!res.headersSent) {
       res.status(500).json({ error: `Error executing action ${action}` });
     }
@@ -293,21 +342,21 @@ function validateNetworkConfig(config) {
   if (!config) {
     return {
       error: 'No configuration provided',
-      received: config
+      received: config,
     };
   }
 
   if (!config.provider) {
     return {
       error: 'Provider missing in configuration',
-      received: config
+      received: config,
     };
   }
 
   if (!config.network_name) {
     return {
       error: 'network_name missing in configuration',
-      received: config
+      received: config,
     };
   }
 

@@ -29,14 +29,25 @@ class NetworkService {
     // Verify network configuration exists
     try {
       await s3Service.getFile(bucket, key);
-    } catch (err) {
-      throw new Error(`Network configuration missing for client ${clientId} and provider ${provider}`);
+    } catch {
+      throw new Error(
+        `Network configuration missing for client ${clientId} and provider ${provider}`
+      );
     }
 
     // Prepare network directory
     const serviceId = PathHelper.getNetworkServiceId(provider);
-    const networkDataDir = await workingDirectoryService.prepare(clientId, serviceId, bucket);
-    const networkRunner = instanceManager.getInstance(clientId, serviceId, networkDataDir, NETWORK_CODE_DIR);
+    const networkDataDir = await workingDirectoryService.prepare(
+      clientId,
+      serviceId,
+      bucket
+    );
+    const networkRunner = instanceManager.getInstance(
+      clientId,
+      serviceId,
+      networkDataDir,
+      NETWORK_CODE_DIR
+    );
 
     // Initialize if needed
     await networkRunner.ensureInitialized();
@@ -44,10 +55,16 @@ class NetworkService {
     // Run plan and check status
     const planOutput = await networkRunner.runPlan();
     const lastAction = await this._getLastAction(bucket, clientId, serviceId);
-    const status = OpenTofuStatus.fromPlanOutput(`${clientId}/${serviceId}`, planOutput, lastAction);
+    const status = OpenTofuStatus.fromPlanOutput(
+      `${clientId}/${serviceId}`,
+      planOutput,
+      lastAction
+    );
 
     if (!status.applied) {
-      throw new Error(`Network for client ${clientId} provider ${provider} is not ready. Plan shows changes needed.`);
+      throw new Error(
+        `Network for client ${clientId} provider ${provider} is not ready. Plan shows changes needed.`
+      );
     }
   }
 
@@ -72,7 +89,7 @@ class NetworkService {
           output: 'Network configuration missing',
           timestamp: new Date().toISOString(),
           errorMessage: 'Network configuration missing',
-          errorStack: null
+          errorStack: null,
         };
       }
       throw err;
@@ -83,22 +100,42 @@ class NetworkService {
     const provider = pathParts[pathParts.length - 2]; // network/[provider]/terraform.tfvars.json
     const serviceId = PathHelper.getNetworkServiceId(provider);
 
-    const dataDir = await workingDirectoryService.prepare(clientId, serviceId, bucket);
-    const runner = instanceManager.getInstance(clientId, serviceId, dataDir, NETWORK_CODE_DIR);
+    const dataDir = await workingDirectoryService.prepare(
+      clientId,
+      serviceId,
+      bucket
+    );
+    const runner = instanceManager.getInstance(
+      clientId,
+      serviceId,
+      dataDir,
+      NETWORK_CODE_DIR
+    );
 
     try {
       await runner.ensureInitialized();
 
       const planOutput = await runner.runPlan();
       const lastAction = await this._getLastAction(bucket, clientId, serviceId);
-      const status = OpenTofuStatus.fromPlanOutput(`${clientId}/${serviceId}`, planOutput, lastAction);
+      const status = OpenTofuStatus.fromPlanOutput(
+        `${clientId}/${serviceId}`,
+        planOutput,
+        lastAction
+      );
 
       return status.toJSON();
-
     } catch (err) {
-      console.error(`[NetworkService] Error running plan for ${clientId}/${provider}:`, err);
+      console.error(
+        `[NetworkService] Error running plan for ${clientId}/${provider}:`,
+        err
+      );
 
-      const errorStatus = OpenTofuStatus.fromError(`${clientId}/${serviceId}`, '', err, 'plan');
+      const errorStatus = OpenTofuStatus.fromError(
+        `${clientId}/${serviceId}`,
+        '',
+        err,
+        'plan'
+      );
       return errorStatus.toJSON();
     }
   }
@@ -113,9 +150,13 @@ class NetworkService {
    */
   static async _getLastAction(bucket, clientId, serviceId) {
     try {
-      const existingInfo = await s3Service.getServiceInfo(bucket, clientId, serviceId);
+      const existingInfo = await s3Service.getServiceInfo(
+        bucket,
+        clientId,
+        serviceId
+      );
       return existingInfo?.lastAction || 'plan';
-    } catch (err) {
+    } catch {
       return 'plan';
     }
   }

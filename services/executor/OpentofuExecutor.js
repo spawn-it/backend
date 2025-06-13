@@ -28,77 +28,96 @@ class OpentofuExecutor {
    * @param {string} codeDir - OpenTofu code directory
    * @returns {Promise<void>}
    */
-  static executeAction(action, clientId, serviceId, bucket, res = null, codeDir = OPENTOFU_CODE_DIR) {
-    return new Promise(async (resolve, reject) => {
-      try {
-        const dataDir = await workingDirectoryService.prepare(clientId, serviceId, bucket);
-        const isNetwork = isNetworkService(serviceId);
+  static async executeAction(
+      action,
+      clientId,
+      serviceId,
+      bucket,
+      res = null,
+      codeDir = OPENTOFU_CODE_DIR
+  ) {
+    try {
+      const dataDir = await workingDirectoryService.prepare(clientId, serviceId, bucket);
+      const isNetwork = isNetworkService(serviceId);
 
-        let instanceConfig = null;
-        if (!isNetwork) {
-          instanceConfig = await this._getInstanceConfig(clientId, serviceId, bucket);
-          if (!instanceConfig) {
-            if (res && !res.headersSent) res.status(500).json({ error: `Missing configuration for ${serviceId}` });
-            return reject(new Error('Missing configuration'));
-          }
+      let instanceConfig = null;
+      if (!isNetwork) {
+        instanceConfig = await this._getInstanceConfig(clientId, serviceId, bucket);
+        if (!instanceConfig) {
+          if (res && !res.headersSent)
+            res.status(500).json({ error: `Missing configuration for ${serviceId}` });
+          throw new Error('Missing configuration');
         }
+      }
 
-        planLoopManager.stop(clientId, serviceId);
+      planLoopManager.stop(clientId, serviceId);
 
-        if (!isNetwork && instanceConfig) {
-          await NetworkService.checkIsReady(clientId, instanceConfig, bucket);
-        }
+      if (!isNetwork && instanceConfig) {
+        await NetworkService.checkIsReady(clientId, instanceConfig, bucket);
+      }
 
-        const runner = instanceManager.getInstance(clientId, serviceId, dataDir, codeDir);
-        const jobId = jobManager.createJob();
-        const proc = await runner.spawnCommand(action);
-        jobManager.setJob(jobId, proc);
+      const runner = instanceManager.getInstance(clientId, serviceId, dataDir, codeDir);
+      const jobId = jobManager.createJob();
+      const proc = await runner.spawnCommand(action);
+      jobManager.setJob(jobId, proc);
 
-        if (res && !res.headersSent) res.json({ jobId });
+      if (res && !res.headersSent) res.json({ jobId });
 
-        let output = '';
+      let output = '';
 
-        proc.stdout.on('data', c => {
+      return await new Promise((resolve, reject) => {
+        proc.stdout.on('data', (c) => {
           const t = c.toString();
           output += t;
           sendToClients(clientId, serviceId, t, 'data');
         });
 
-        proc.stderr.on('data', c => {
+        proc.stderr.on('data', (c) => {
           const t = c.toString();
           output += t;
           sendToClients(clientId, serviceId, t, 'error');
         });
 
-        proc.on('close', async code => {
-          jobManager.removeJob(jobId);
+        proc.on('close', async (code) => {
+          try {
+            jobManager.removeJob(jobId);
 
-          const status = this._createStatusFromResult(clientId, serviceId, action, output, code);
-          const tofuVarOutput = await runner.spawnOutput()
-          await s3Service.updateServiceLastApplyOutput(bucket, clientId, serviceId, tofuVarOutput);
-          await s3Service.updateServiceStatus(bucket, clientId, serviceId, status.toJSON());
-          if (action !== 'plan' && code === 0) {
-            await s3Service.updateServiceLastAction(bucket, clientId, serviceId, action);
+            const status = this._createStatusFromResult(
+                clientId,
+                serviceId,
+                action,
+                output,
+                code
+            );
+            const tofuVarOutput = await runner.spawnOutput();
+            await s3Service.updateServiceLastApplyOutput(bucket, clientId, serviceId, tofuVarOutput);
+            await s3Service.updateServiceStatus(bucket, clientId, serviceId, status.toJSON());
+
+            if (action !== 'plan' && code === 0) {
+              await s3Service.updateServiceLastAction(bucket, clientId, serviceId, action);
+            }
+
+            sendToClients(clientId, serviceId, JSON.stringify(status.toJSON()), 'end');
+            planLoopManager.start(clientId, serviceId, dataDir);
+
+            return code === 0 ? resolve(status) : reject(new Error(`${action} exited with code ${code}`));
+          } catch (err) {
+            reject(err);
           }
-
-          sendToClients(clientId, serviceId, JSON.stringify(status.toJSON()), 'end');
-          planLoopManager.start(clientId, serviceId, dataDir);
-
-          return code === 0 ? resolve(status) : reject(new Error(`${action} exited with code ${code}`));
         });
 
-        proc.on('error', err => {
+        proc.on('error', (err) => {
           jobManager.removeJob(jobId);
           const status = OpenTofuStatus.fromError(`${clientId}/${serviceId}`, output, err, action);
           sendToClients(clientId, serviceId, JSON.stringify(status.toJSON()), 'error');
           if (res && !res.headersSent) res.status(500).json({ error: err.message });
           reject(err);
         });
-      } catch (err) {
-        if (res && !res.headersSent) res.status(500).json({ error: err.message });
-        reject(err);
-      }
-    });
+      });
+    } catch (err) {
+      if (res && !res.headersSent) res.status(500).json({ error: err.message });
+      throw err;
+    }
   }
 
   /**
@@ -109,13 +128,17 @@ class OpentofuExecutor {
    * @returns {Promise<Object>} Status object with directory information
    */
   static async executePlan(clientId, serviceId, bucket) {
-    const dataDir = await workingDirectoryService.prepare(clientId, serviceId, bucket);
+    const dataDir = await workingDirectoryService.prepare(
+      clientId,
+      serviceId,
+      bucket
+    );
     planLoopManager.start(clientId, serviceId, dataDir);
 
     return {
       status: 'started',
       codeDir: OPENTOFU_CODE_DIR,
-      dataDir
+      dataDir,
     };
   }
 
@@ -134,7 +157,10 @@ class OpentofuExecutor {
       const instanceJson = JSON.parse(instanceRaw);
       return new InstanceConfig(instanceJson.instance || instanceJson);
     } catch (err) {
-      console.error(`[OpentofuExecutor] Error reading instance config for ${clientId}/${serviceId}:`, err);
+      console.error(
+        `[OpentofuExecutor] Error reading instance config for ${clientId}/${serviceId}:`,
+        err
+      );
       return null;
     }
   }
@@ -163,10 +189,10 @@ class OpentofuExecutor {
     } else {
       // Error - create error status
       return OpenTofuStatus.fromError(
-          key,
-          output,
-          new Error(`${action} exited with code ${code}`),
-          action
+        key,
+        output,
+        new Error(`${action} exited with code ${code}`),
+        action
       );
     }
   }

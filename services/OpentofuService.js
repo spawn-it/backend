@@ -4,7 +4,6 @@
  */
 const OpentofuExecutor = require('./executor/OpentofuExecutor');
 const NetworkService = require('./NetworkService');
-const jobManager = require('./manager/JobManager');
 const planLoopManager = require('./manager/PlanLoopManager');
 const s3Service = require('./s3/S3Service');
 const workingDirectoryService = require('./WorkingDirectoryService');
@@ -82,11 +81,11 @@ class TofuService {
     const key = `${clientId}:${serviceId}`;
 
     return actionLock.acquire(
-        key,
-        async () => {
-          return OpentofuExecutor.executePlan(clientId, serviceId, bucket);
-        },
-        { timeout: 15 * 60 * 1000 }
+      key,
+      async () => {
+        return OpentofuExecutor.executePlan(clientId, serviceId, bucket);
+      },
+      { timeout: 15 * 60 * 1000 }
     );
   }
 
@@ -101,28 +100,28 @@ class TofuService {
    * @returns {Promise<void>}
    */
   async executeAction(
-      action,
-      clientId,
-      serviceId,
-      bucket,
-      res,
-      opentofuCodeDir = OPENTOFU_CODE_DIR
+    action,
+    clientId,
+    serviceId,
+    bucket,
+    res,
+    opentofuCodeDir = OPENTOFU_CODE_DIR
   ) {
     const key = `${clientId}:${serviceId}`;
 
     return actionLock.acquire(
-        key,
-        async () => {
-          return OpentofuExecutor.executeAction(
-              action,
-              clientId,
-              serviceId,
-              bucket,
-              res,
-              opentofuCodeDir
-          );
-        },
-        { timeout: 15 * 60 * 1000 }
+      key,
+      async () => {
+        return OpentofuExecutor.executeAction(
+          action,
+          clientId,
+          serviceId,
+          bucket,
+          res,
+          opentofuCodeDir
+        );
+      },
+      { timeout: 15 * 60 * 1000 }
     );
   }
 

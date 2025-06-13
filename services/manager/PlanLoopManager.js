@@ -25,7 +25,12 @@ class PlanLoopManager {
    * @param {number} intervalMs - Loop interval in milliseconds
    * @returns {void}
    */
-  start(clientId, serviceId, dataDir, intervalMs = DefaultValues.PLAN_INTERVAL_MS) {
+  start(
+    clientId,
+    serviceId,
+    dataDir,
+    intervalMs = DefaultValues.PLAN_INTERVAL_MS
+  ) {
     const key = `${clientId}/${serviceId}`;
 
     // Stop existing loop if it exists
@@ -33,7 +38,12 @@ class PlanLoopManager {
       this.stop(clientId, serviceId);
     }
 
-    const runner = instanceManager.getInstance(clientId, serviceId, dataDir, OPENTOFU_CODE_DIR);
+    const runner = instanceManager.getInstance(
+      clientId,
+      serviceId,
+      dataDir,
+      OPENTOFU_CODE_DIR
+    );
 
     const intervalId = setInterval(async () => {
       try {
@@ -45,11 +55,14 @@ class PlanLoopManager {
         // Execute plan and create status
         const planOutput = await runner.runPlan();
         const lastAction = await this._getLastAction(clientId, serviceId);
-        const status = OpenTofuStatus.fromPlanOutput(key, planOutput, lastAction);
+        const status = OpenTofuStatus.fromPlanOutput(
+          key,
+          planOutput,
+          lastAction
+        );
 
         // Send to clients and save
         await this._updateAndNotify(clientId, serviceId, status);
-
       } catch (err) {
         await this._handlePlanError(clientId, serviceId, key, err);
       }
@@ -76,20 +89,6 @@ class PlanLoopManager {
   }
 
   /**
-   * Stops all plan loops for a client
-   * @param {string} clientId - Client identifier
-   * @returns {void}
-   */
-  stopAllForClient(clientId) {
-    for (const key of this.planLoops.keys()) {
-      if (key.startsWith(`${clientId}/`)) {
-        const serviceId = key.substring(clientId.length + 1);
-        this.stop(clientId, serviceId);
-      }
-    }
-  }
-
-  /**
    * Gets all active plan loop keys
    * @returns {string[]} Array of active loop keys
    */
@@ -103,10 +102,19 @@ class PlanLoopManager {
    */
   async _checkNetworkReadiness(clientId, serviceId) {
     const configKey = PathHelper.getServiceConfigKey(clientId, serviceId);
-    const instanceRaw = await s3Service.getFile(process.env.S3_BUCKET, configKey);
+    const instanceRaw = await s3Service.getFile(
+      process.env.S3_BUCKET,
+      configKey
+    );
     const instanceJson = JSON.parse(instanceRaw);
-    const instanceConfig = new InstanceConfig(instanceJson.instance || instanceJson);
-    await NetworkService.checkIsReady(clientId, instanceConfig, process.env.S3_BUCKET);
+    const instanceConfig = new InstanceConfig(
+      instanceJson.instance || instanceJson
+    );
+    await NetworkService.checkIsReady(
+      clientId,
+      instanceConfig,
+      process.env.S3_BUCKET
+    );
   }
 
   /**
@@ -115,9 +123,13 @@ class PlanLoopManager {
    */
   async _getLastAction(clientId, serviceId) {
     try {
-      const existingInfo = await s3Service.getServiceInfo(process.env.S3_BUCKET, clientId, serviceId);
+      const existingInfo = await s3Service.getServiceInfo(
+        process.env.S3_BUCKET,
+        clientId,
+        serviceId
+      );
       return existingInfo?.lastAction || 'plan';
-    } catch (err) {
+    } catch {
       return 'plan';
     }
   }
@@ -128,7 +140,12 @@ class PlanLoopManager {
    */
   async _updateAndNotify(clientId, serviceId, status) {
     sendToClients(clientId, serviceId, JSON.stringify(status.toJSON()));
-    await s3Service.updateServiceStatus(process.env.S3_BUCKET, clientId, serviceId, status.toJSON());
+    await s3Service.updateServiceStatus(
+      process.env.S3_BUCKET,
+      clientId,
+      serviceId,
+      status.toJSON()
+    );
   }
 
   /**
@@ -139,7 +156,12 @@ class PlanLoopManager {
     const lastAction = await this._getLastAction(clientId, serviceId);
     const errorStatus = OpenTofuStatus.fromError(key, '', err, lastAction);
 
-    await s3Service.updateServiceStatus(process.env.S3_BUCKET, clientId, serviceId, errorStatus.toJSON());
+    await s3Service.updateServiceStatus(
+      process.env.S3_BUCKET,
+      clientId,
+      serviceId,
+      errorStatus.toJSON()
+    );
     sendToClients(clientId, serviceId, JSON.stringify(errorStatus.toJSON()));
     this.stop(clientId, serviceId);
   }
