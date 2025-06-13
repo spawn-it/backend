@@ -99,8 +99,13 @@ class OpentofuExecutor {
 
             sendToClients(clientId, serviceId, JSON.stringify(status.toJSON()), 'end');
             planLoopManager.start(clientId, serviceId, dataDir);
+            if (code === 0) {
+              resolve(status);
+            } else {
+              console.error(`[OpenTofu] Full output for ${clientId}/${serviceId}:\n${output}`);
+              reject(new Error(`${action} exited with code ${code}`));
+            }
 
-            return code === 0 ? resolve(status) : reject(new Error(`${action} exited with code ${code}`));
           } catch (err) {
             reject(err);
           }
