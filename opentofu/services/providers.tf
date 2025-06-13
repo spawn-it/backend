@@ -35,8 +35,8 @@ provider "minio" {
 # Default configuration for working with AWS resources (e.g., EC2, S3, etc.)
 provider "aws" {
   region = var.aws_default_region # AWS region (e.g., Frankfurt)
-  access_key = local.use_aws ? var.aws_access_key_id     : null
-  secret_key = local.use_aws ? var.aws_secret_access_key : null
+  access_key = local.use_aws ? var.aws_access_key_id     : "dummy"
+  secret_key = local.use_aws ? var.aws_secret_access_key : "dummy"
 
   skip_credentials_validation = !local.use_aws
   skip_metadata_api_check     = !local.use_aws
