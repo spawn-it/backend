@@ -6,7 +6,7 @@ terraform {
 # Module for deploying services using the 'local' Docker provider.
 # Instantiated if var.instance.provider is "local".
 module "provider_infra_local" {
-  count          = var.instance.provider == "local" ? 1 : 0
+  count          = local.use_local ? 1 : 0
   source         = "./modules/providers/local"
   image          = var.instance.image
   container_name = var.instance.container_name
@@ -20,12 +20,12 @@ module "provider_infra_local" {
 # Module for deploying services using the AWS provider.
 # Instantiated if var.instance.provider is "aws".
 module "provider_infra_aws" {
-  count  = var.instance.provider == "aws" ? 1 : 0
+  count  = local.use_aws ? 1 : 0
   source = "./modules/providers/aws"
 
   # Pass AWS-specific configuration (region, instance type, key name).
   aws_config = {
-    region        = var.aws_region
+    region        = var.aws_default_region
     instance_type = var.aws_instance_type
     key_name      = var.aws_key_name
   }

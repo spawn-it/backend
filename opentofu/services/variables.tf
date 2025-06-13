@@ -22,14 +22,6 @@ variable "s3_secret_key" {
   sensitive   = true
 }
 
-
-# AWS region in which resources like EC2 instances will be deployed
-variable "aws_region" {
-  description = "AWS region where resources will be created"
-  type        = string
-  default     = "eu-central-1" # Frankfurt
-}
-
 # EC2 instance type to use for running the container (e.g., t3.micro, t3.small)
 variable "aws_instance_type" {
   description = "AWS instance type for the container"
@@ -43,6 +35,29 @@ variable "aws_key_name" {
   description = "AWS key pair name for SSH access to the instance"
   type        = string
   default     = "game-server-key"
+}
+
+# AWS access key ID for authentication
+variable "aws_access_key_id" {
+  description = "AWS access key ID for authentication"
+  type        = string
+  sensitive = true
+  default = null
+}
+
+# AWS secret access key for authentication
+variable "aws_secret_access_key" {
+  description = "AWS secret access key for authentication"
+  type        = string
+  sensitive = true
+  default = null
+}
+
+# AWS region in which resources like EC2 instances will be deployed
+variable "aws_default_region" {
+  description = "AWS region where resources will be created"
+  type        = string
+  default     = "eu-central-1" # Frankfurt
 }
 
 # Main input variable defining the service instance to be deployed.
