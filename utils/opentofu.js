@@ -193,49 +193,6 @@ class OpenTofuCommand {
   }
 
   /**
-   * Retrieves a specific output value by key
-   * @param {string} outputKey - The output key to retrieve
-   * @returns {Promise<any>} The specific output value
-   */
-  async getOutputValue(outputKey) {
-    try {
-      const outputs = await this.spawnOutput();
-
-      if (Object.prototype.hasOwnProperty.call(outputs, outputKey)) {
-        return outputs[outputKey];
-      } else {
-        console.warn(
-          `[OpenTofu] Output key '${outputKey}' not found for ${this.key}`
-        );
-        return null;
-      }
-    } catch (error) {
-      console.error(
-        `[OpenTofu] Failed to get output '${outputKey}' for ${this.key}:`,
-        error.message
-      );
-      throw error;
-    }
-  }
-
-  /**
-   * Checks if outputs are available (state exists and has resources)
-   * @returns {Promise<boolean>} True if outputs are available
-   */
-  async hasOutputs() {
-    try {
-      const outputs = await this.spawnOutput();
-      return Object.keys(outputs).length > 0;
-    } catch (error) {
-      console.warn(
-        `[OpenTofu] Could not check outputs for ${this.key}:`,
-        error.message
-      );
-      return false;
-    }
-  }
-
-  /**
    * Spawns an OpenTofu command process with timeout and monitoring
    * @param {string} action - Action to execute (plan, apply, destroy)
    * @returns {Promise<ChildProcess>} Spawned process
@@ -444,41 +401,6 @@ class OpenTofuCommand {
         } else {
           resolve(output);
         }
-      });
-    });
-  }
-
-  /**
-   * Checks if resources are currently applied in the state
-   * @returns {Promise<boolean>} True if resources exist in state
-   */
-  async isResourceApplied() {
-    const env = this._getEnvironmentVariables();
-
-    return new Promise((resolve) => {
-      const proc = spawn(this.tofuBin, ['state', 'list'], {
-        cwd: this.codeDir,
-        env,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-
-      let output = '';
-
-      proc.stdout.on('data', (chunk) => {
-        output += chunk.toString();
-      });
-
-      proc.on('close', (code) => {
-        if (code === 0) {
-          const hasResources = output.trim().length > 0;
-          resolve(hasResources);
-        } else {
-          resolve(false);
-        }
-      });
-
-      proc.on('error', () => {
-        resolve(false);
       });
     });
   }

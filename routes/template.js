@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const templateService = require('../services/template');
+const templateService = require('../services/TemplateService');
 
 // GET /template/:name - retourne un template JSON depuis S3
 router.get('/template/:name', async (req, res) => {

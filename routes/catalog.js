@@ -38,12 +38,6 @@ router.get('/catalog/:name/image', (req, res) => {
   }
 });
 
-// GET /catalog/flat - tous les services à plat
-router.get('/catalog/flat', (req, res) => {
-  const all = catalog._getAllServicesFlat();
-  res.json(all);
-});
-
 // GET /catalog/category/:id - services d'une catégorie
 router.get('/catalog/category/:id', (req, res) => {
   const categoryId = req.params.id;

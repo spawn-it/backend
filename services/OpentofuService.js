@@ -12,13 +12,6 @@ const AsyncLock = require('async-lock');
 const actionLock = new AsyncLock();
 
 class TofuService {
-  /**
-   * Lists all available S3 buckets
-   * @returns {Promise<string[]>} Array of bucket names
-   */
-  async listBuckets() {
-    return s3Service.listBuckets();
-  }
 
   /**
    * Lists all clients in a specific bucket
